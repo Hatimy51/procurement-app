@@ -44,6 +44,7 @@ class QuoteStatus(str, enum.Enum):
 class PriceSource(str, enum.Enum):
     manual = "manual"
     supplier_quote = "supplier_quote"
+    bulk_import = "import"
 
 
 class Customer(Base):

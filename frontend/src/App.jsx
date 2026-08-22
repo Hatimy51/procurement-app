@@ -1,10 +1,12 @@
 import { useState } from 'react'
 import ProductPriceList from './ProductPriceList'
 import EnquiryReview from './EnquiryReview'
+import Import from './Import'
 
 const TABS = [
   { key: 'enquiries', label: 'Enquiries', component: EnquiryReview },
   { key: 'products', label: 'Product & Price List', component: ProductPriceList },
+  { key: 'import', label: 'Import', component: Import },
 ]
 
 export default function App() {

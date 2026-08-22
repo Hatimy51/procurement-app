@@ -44,6 +44,49 @@ def read_image_as_text(file_bytes: bytes) -> str:
     return pytesseract.image_to_string(image)
 
 
+def parse_tabular_file(filename: str, file_bytes: bytes) -> tuple[list[str], list[list[str]]]:
+    """
+    Reads an Excel/CSV file as structured rows (headers + data rows), for
+    the Import screen — where we need actual columns to map, unlike
+    read_xlsx_as_text() above which flattens everything for the enquiry
+    extraction pipeline.
+    """
+    lower = filename.lower()
+    if lower.endswith((".xlsx", ".xls")):
+        from openpyxl import load_workbook
+
+        wb = load_workbook(io.BytesIO(file_bytes), data_only=True)
+        ws = wb.worksheets[0]
+        rows_iter = ws.iter_rows(values_only=True)
+        try:
+            header_row = next(rows_iter)
+        except StopIteration:
+            return [], []
+        headers = [str(c).strip() if c is not None else "" for c in header_row]
+        rows = []
+        for row in rows_iter:
+            cells = [str(c).strip() if c is not None else "" for c in row]
+            if any(cells):
+                rows.append(cells)
+        return headers, rows
+
+    elif lower.endswith(".csv"):
+        import csv
+
+        text = file_bytes.decode("utf-8", errors="ignore")
+        reader = list(csv.reader(io.StringIO(text)))
+        if not reader:
+            return [], []
+        headers = [h.strip() for h in reader[0]]
+        rows = [r for r in reader[1:] if any(c.strip() for c in r)]
+        return headers, rows
+
+    else:
+        raise ValueError(
+            f"Unsupported file type for import: '{filename}'. "
+            "Supported for import: .xlsx, .xls, .csv"
+        )
+
 def extract_text_from_upload(filename: str, file_bytes: bytes) -> str:
     """Dispatches to the right reader based on file extension."""
     lower = filename.lower()

@@ -47,4 +47,20 @@ export const api = {
       body: JSON.stringify(payload),
     }),
   markEnquiryReviewed: (id) => request(`/enquiries/${id}/mark-reviewed`, { method: 'POST' }),
+
+  importPreview: async (file) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    const res = await fetch(`${BASE}/imports/preview`, { method: 'POST', body: formData })
+    if (!res.ok) throw new Error(`API error ${res.status}: ${await res.text()}`)
+    return res.json()
+  },
+  importCommit: async (file, mapping) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    formData.append('mapping', JSON.stringify(mapping))
+    const res = await fetch(`${BASE}/imports/commit`, { method: 'POST', body: formData })
+    if (!res.ok) throw new Error(`API error ${res.status}: ${await res.text()}`)
+    return res.json()
+  },
 }
