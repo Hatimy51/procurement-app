@@ -1,17 +1,54 @@
 """
-A self-check endpoint — lets you (or me, remotely) verify whether the free
-local AI model is actually reachable and how long it takes to respond,
-without needing to submit a real enquiry and guess whether it's stuck or
-just slow.
+Self-check endpoints — verify whether the currently configured AI extraction
+provider is actually working, without needing to submit a real enquiry and
+guess whether something is stuck, misconfigured, or just slow.
 """
+import os
 import time
 from fastapi import APIRouter
 
 router = APIRouter(prefix="/api/diagnostics", tags=["diagnostics"])
 
 
+@router.get("/extraction")
+def check_extraction():
+    """
+    Checks whichever provider EXTRACTION_PROVIDER is actually set to right
+    now (local / groq / claude) — unlike the old Ollama-only check below,
+    this won't give a misleading answer if you've switched providers.
+    """
+    provider_name = os.getenv("EXTRACTION_PROVIDER", "local")
+    from app.extraction.base import get_extraction_service, ENQUIRY_SCHEMA
+
+    start = time.time()
+    try:
+        service = get_extraction_service()
+        result = service.extract(
+            "Please quote 5 units of Test Item, 10mm.", ENQUIRY_SCHEMA
+        )
+        elapsed = round(time.time() - start, 1)
+        return {
+            "provider": provider_name,
+            "reachable": True,
+            "seconds_taken": elapsed,
+            "extracted_sample": result.data,
+            "note": "This is a real test extraction call, not just a connectivity ping.",
+        }
+    except Exception as e:
+        elapsed = round(time.time() - start, 1)
+        return {
+            "provider": provider_name,
+            "reachable": False,
+            "seconds_waited": elapsed,
+            "error": str(e),
+        }
+
+
 @router.get("/ollama")
 def check_ollama():
+    """Legacy check specifically for the local Ollama provider — use
+    /api/diagnostics/extraction instead if you're not sure which provider
+    is currently active."""
     from app.extraction.local_provider import OLLAMA_URL, OLLAMA_MODEL
     import json
     import urllib.request

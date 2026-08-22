@@ -51,6 +51,11 @@ class GroqProvider(ExtractionProvider):
             headers={
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.api_key}",
+                # Groq's API sits behind Cloudflare, which blocks requests
+                # carrying Python's default bot-like identification string
+                # (error code 1010). A normal-looking one avoids that.
+                "User-Agent": "Mozilla/5.0 (compatible; ProcurementApp/1.0)",
+                "Accept": "application/json",
             },
         )
         try:

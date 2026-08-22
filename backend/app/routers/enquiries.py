@@ -34,8 +34,14 @@ def _ingest_from_text(customer_name: str, site_name: str, raw_text: str, db: Ses
         db.add(site)
         db.flush()
 
-    extraction_service = get_extraction_service()
-    result = extraction_service.extract(raw_text, ENQUIRY_SCHEMA)
+    try:
+        extraction_service = get_extraction_service()
+        result = extraction_service.extract(raw_text, ENQUIRY_SCHEMA)
+    except Exception as e:
+        # Surface the REAL failure (wrong/missing API key, unreachable Ollama,
+        # bad model name, etc.) instead of letting it become a generic,
+        # undiagnosable 500 — whichever provider is actually configured.
+        raise HTTPException(500, f"Extraction failed: {e}")
 
     enquiry = models.Enquiry(
         site_id=site.id,

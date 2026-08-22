@@ -156,11 +156,10 @@ export default function EnquiryReview() {
       await loadEnquiries()
       openDetail(created.id)
     } catch (e) {
-      setError(
-        e.message.includes('API error 500')
-          ? `${e.message} — this usually means the local AI model (Ollama) either isn't running, or timed out. Check the "Reading enquiry" tip below the button for how to verify it.`
-          : e.message
-      )
+      // Show the real backend error directly now (see enquiries.py) instead
+      // of guessing which AI provider is at fault — the message itself will
+      // now say exactly what failed, whichever provider is configured.
+      setError(e.message)
     } finally {
       setIngesting(false)
       clearInterval(timer)
