@@ -1,0 +1,36 @@
+version: "3.8"
+
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: procurement
+      POSTGRES_PASSWORD: procurement
+      POSTGRES_DB: procurement_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://procurement:procurement@db:5432/procurement_db
+      # EXTRACTION_PROVIDER options: local (fully offline, slow on ordinary
+      # laptop CPUs) | groq (free tier, hosted, fast — recommended) | claude (paid)
+      EXTRACTION_PROVIDER: groq
+      # Read from a .env file (kept out of GitHub) instead of hardcoded here
+      # — see .env.example for what to copy and fill in.
+      GROQ_API_KEY: ${GROQ_API_KEY}
+      # Only used if EXTRACTION_PROVIDER=local:
+      OLLAMA_URL: http://host.docker.internal:11434/api/generate
+      OLLAMA_MODEL: llama3.2
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+
+volumes:
+  pgdata:

@@ -1,0 +1,15 @@
+# Secrets — never commit your real API key
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.db
+
+# Node / frontend
+node_modules/
+dist/
+
+# OS clutter
+.DS_Store
+Thumbs.db
