@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { api } from './api'
+import { getConvertibleUnits, convertQuantity } from './units'
 
 const EMPTY_INGEST_FORM = { customer_name: '', site_name: '', raw_text: '' }
 
@@ -74,6 +75,7 @@ export default function EnquiryReview() {
   const [enquiries, setEnquiries] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [infoMessage, setInfoMessage] = useState(null)
 
   const [ingestOpen, setIngestOpen] = useState(false)
   const [ingestMode, setIngestMode] = useState('paste') // 'paste' | 'file'
@@ -198,11 +200,67 @@ export default function EnquiryReview() {
     }
   }
 
+  // Confirms a suggested match with one click — never applied automatically,
+  // only ever in response to the Purchaser explicitly accepting it.
+  async function confirmSuggestion(item) {
+    await saveItem({ ...item, product_id: item.suggested_product_id })
+  }
+
   async function markReviewed() {
     try {
       await api.markEnquiryReviewed(selectedId)
       await loadEnquiries()
       openDetail(selectedId)
+    } catch (e) {
+      setError(e.message)
+    }
+  }
+
+  async function handleDeleteEnquiry(id) {
+    if (!window.confirm('Delete this enquiry? This cannot be undone.')) return
+    setError(null)
+    try {
+      await api.deleteEnquiry(id)
+      await loadEnquiries()
+      // if we deleted the one currently open, go back to the list
+      if (selectedId === id) {
+        setSelectedId(null)
+        setDetail(null)
+      }
+    } catch (e) {
+      setError(e.message)
+    }
+  }
+
+  async function saveItemAsNewProduct(item) {
+    setError(null)
+    try {
+      const updated = await api.saveItemAsNewProduct(selectedId, item.id)
+      setDetail((d) => ({
+        ...d,
+        items: d.items.map((i) => (i.id === item.id ? updated : i)),
+      }))
+      // so the "Linked product" dropdown shows the new product without a full refetch
+      setProducts((prev) => [...prev, { id: updated.created_product_id, name: updated.created_product_name }])
+      setInfoMessage(`Saved "${updated.created_product_name}" as a new product.`)
+    } catch (e) {
+      setError(e.message)
+    }
+  }
+
+  async function saveAllAsNewProducts() {
+    setError(null)
+    try {
+      const result = await api.saveAllAsProducts(selectedId)
+      setInfoMessage(
+        `${result.products_created} new product(s) created` +
+          (result.items_already_linked_skipped > 0
+            ? `, ${result.items_already_linked_skipped} item(s) were already linked and left as-is.`
+            : '.')
+      )
+      await openDetail(selectedId)
+      const freshProducts = await api.listProducts()
+      setProducts(freshProducts)
     } catch (e) {
       setError(e.message)
     }
@@ -218,9 +276,17 @@ export default function EnquiryReview() {
   if (selectedId && detail) {
     return (
       <div>
-        <button style={styles.linkButton} onClick={() => { setSelectedId(null); setDetail(null) }}>
-          ← Back to list
-        </button>
+        <div style={styles.detailHeader}>
+          <button style={styles.linkButton} onClick={() => { setSelectedId(null); setDetail(null) }}>
+            ← Back to list
+          </button>
+          <button
+            style={styles.dangerLinkButton}
+            onClick={() => handleDeleteEnquiry(selectedId)}
+          >
+            Delete this enquiry
+          </button>
+        </div>
         <h2 style={{ marginBottom: 4 }}>{detail.site_name}</h2>
         <p style={styles.muted}>
           {detail.customer_name} · Status: {STATUS_LABEL[detail.status] || detail.status}
@@ -230,13 +296,27 @@ export default function EnquiryReview() {
         </p>
 
         {error && <div style={styles.errorBanner}>{error}</div>}
+        {infoMessage && <div style={styles.infoBanner}>{infoMessage}</div>}
 
         <details style={{ marginBottom: 16 }}>
           <summary style={{ cursor: 'pointer', color: '#555' }}>View original enquiry text</summary>
           <pre style={styles.rawText}>{detail.raw_source}</pre>
         </details>
 
-        <h3>Extracted items — review and correct before pricing</h3>
+        <div style={styles.sectionHeaderRow}>
+          <h3 style={{ margin: 0 }}>Extracted items — review and correct before pricing</h3>
+          <button style={styles.secondaryButton} onClick={saveAllAsNewProducts}>
+            Save all as new products
+          </button>
+        </div>
+        <p style={styles.muted}>
+          "Save as new" creates a fresh Product entry from that item — use this when it's
+          genuinely something new. To link an item to something already in your Product list
+          instead, use the dropdown. A confident suggestion shows inline for unmatched items —
+          one click to accept, or ignore it and pick manually. For length/weight/volume units,
+          a small "Convert to…" dropdown appears under the Unit field — e.g. switch a quantity
+          from Feet to Meter depending on how the client you're quoting to prefers it.
+        </p>
         {detailLoading ? (
           <p>Loading…</p>
         ) : (
@@ -291,6 +371,29 @@ export default function EnquiryReview() {
                       value={item.unit}
                       onChange={(e) => updateLocalItem(item.id, 'unit', e.target.value)}
                     />
+                    {getConvertibleUnits(item.unit).length > 0 && (
+                      <select
+                        style={styles.convertSelect}
+                        value=""
+                        onChange={(e) => {
+                          const targetUnit = e.target.value
+                          if (!targetUnit) return
+                          const converted = convertQuantity(item.quantity, item.unit, targetUnit)
+                          if (converted !== null) {
+                            updateLocalItem(item.id, 'quantity', converted)
+                            updateLocalItem(item.id, 'unit', targetUnit)
+                          }
+                          e.target.value = ''
+                        }}
+                      >
+                        <option value="">Convert to…</option>
+                        {getConvertibleUnits(item.unit)
+                          .filter((u) => u.toLowerCase() !== (item.unit || '').trim().toLowerCase())
+                          .map((u) => (
+                            <option key={u} value={u}>{u}</option>
+                          ))}
+                      </select>
+                    )}
                   </td>
                   <td style={styles.td}>
                     <select
@@ -303,6 +406,15 @@ export default function EnquiryReview() {
                         <option key={p.id} value={p.id}>{p.name}</option>
                       ))}
                     </select>
+                    {!item.product_id && item.suggested_product_id && (
+                      <div style={styles.suggestionRow}>
+                        Did you mean <strong>{item.suggested_product_name}</strong>?{' '}
+                        <span style={styles.muted}>({item.suggested_match_score}% match)</span>{' '}
+                        <button style={styles.linkButton} onClick={() => confirmSuggestion(item)}>
+                          Link it
+                        </button>
+                      </div>
+                    )}
                   </td>
                   <td style={styles.td}>
                     {item.price_status === 'matched' ? (
@@ -315,6 +427,9 @@ export default function EnquiryReview() {
                   </td>
                   <td style={styles.td}>
                     <button style={styles.linkButton} onClick={() => saveItem(item)}>Save</button>
+                    <button style={styles.linkButton} onClick={() => saveItemAsNewProduct(item)}>
+                      Save as new
+                    </button>
                   </td>
                 </tr>
               ))}
@@ -488,6 +603,9 @@ export default function EnquiryReview() {
                 <td style={styles.td}>{STATUS_LABEL[e.status] || e.status}</td>
                 <td style={styles.td}>
                   <button style={styles.linkButton} onClick={() => openDetail(e.id)}>Review</button>
+                  <button style={styles.dangerLinkButton} onClick={() => handleDeleteEnquiry(e.id)}>
+                    Delete
+                  </button>
                 </td>
               </tr>
             ))}
@@ -502,6 +620,11 @@ const styles = {
   header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
   title: { fontSize: 22, margin: 0 },
   errorBanner: { background: '#fdecea', color: '#611a15', padding: 10, borderRadius: 6, marginBottom: 12 },
+  infoBanner: { background: '#eff6ff', color: '#1e3a8a', padding: 10, borderRadius: 6, marginBottom: 12 },
+  detailHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
+  dangerLinkButton: { background: 'none', border: 'none', color: '#b91c1c', cursor: 'pointer', fontSize: 13, padding: 0, marginLeft: 10 },
+  sectionHeaderRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 16 },
+  suggestionRow: { marginTop: 4, fontSize: 12, color: '#1e3a8a', background: '#eff6ff', padding: '4px 6px', borderRadius: 4 },
   muted: { color: '#888', fontSize: 13 },
   table: { width: '100%', borderCollapse: 'collapse', fontSize: 14 },
   th: { textAlign: 'left', borderBottom: '2px solid #ddd', padding: '8px 6px', color: '#555' },
@@ -518,6 +641,7 @@ const styles = {
   input: { padding: 8, border: '1px solid #ccc', borderRadius: 6, fontSize: 14 },
   textarea: { width: '100%', padding: 8, border: '1px solid #ccc', borderRadius: 6, fontSize: 14, boxSizing: 'border-box', fontFamily: 'inherit' },
   cellInput: { padding: 4, border: '1px solid #ccc', borderRadius: 4, fontSize: 13, width: '100%', boxSizing: 'border-box' },
+  convertSelect: { padding: 2, border: '1px solid #ccc', borderRadius: 4, fontSize: 11, width: '100%', marginTop: 2, color: '#555' },
   primaryButton: { background: '#2563eb', color: 'white', border: 'none', padding: '8px 14px', borderRadius: 6, cursor: 'pointer', fontSize: 14 },
   secondaryButton: { background: 'white', color: '#333', border: '1px solid #ccc', padding: '8px 14px', borderRadius: 6, cursor: 'pointer', fontSize: 14 },
   linkButton: { background: 'none', border: 'none', color: '#2563eb', cursor: 'pointer', fontSize: 13, padding: 0 },

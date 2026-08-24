@@ -5,7 +5,7 @@ inference hardware, so a real enquiry extraction typically takes a few
 seconds instead of the multiple minutes seen with the local Ollama model
 on ordinary laptop CPUs. Quality also sits meaningfully above the small
 local model, since Groq's free tier gives access to much larger models
-(e.g. Llama 3.3 70B) than most laptops could run locally at usable speed.
+(e.g. openai/gpt-oss-120b) than most laptops could run locally at usable speed.
 
 To activate:
     1. Sign up at https://console.groq.com (no credit card needed)
@@ -27,7 +27,10 @@ import urllib.error
 from app.extraction.base import ExtractionProvider, ExtractionResult
 
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
-GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+# Groq deprecated its Llama chat models (llama-3.3-70b-versatile,
+# llama-3.1-8b-instant) — openai/gpt-oss-120b is their current recommended
+# general-purpose model on the free tier as of mid-2026.
+GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
 
 
 class GroqProvider(ExtractionProvider):

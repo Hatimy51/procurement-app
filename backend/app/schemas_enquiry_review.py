@@ -23,6 +23,12 @@ class EnquiryItemWithPrice(BaseModel):
     product_id: str | None
     suggested_price: Decimal | None  # from latest Price Entry, if matched + found
     price_status: str  # "matched" | "unmatched" | "price_missing"
+    # A confident (never auto-applied) product-match suggestion for items
+    # that aren't linked yet — see app/matching.py. Null when nothing is
+    # confident/unambiguous enough to suggest.
+    suggested_product_id: str | None = None
+    suggested_product_name: str | None = None
+    suggested_match_score: float | None = None
 
 
 class EnquiryDetailOut(BaseModel):

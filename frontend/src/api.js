@@ -21,6 +21,7 @@ export const api = {
     request('/products', { method: 'POST', body: JSON.stringify(product) }),
   updateProduct: (id, product) =>
     request(`/products/${id}`, { method: 'PUT', body: JSON.stringify(product) }),
+  deleteProduct: (id) => request(`/products/${id}`, { method: 'DELETE' }),
   addPrice: (priceEntry) =>
     request('/prices', { method: 'POST', body: JSON.stringify(priceEntry) }),
   priceHistory: (productId) => request(`/prices/product/${productId}`),
@@ -47,6 +48,11 @@ export const api = {
       body: JSON.stringify(payload),
     }),
   markEnquiryReviewed: (id) => request(`/enquiries/${id}/mark-reviewed`, { method: 'POST' }),
+  deleteEnquiry: (id) => request(`/enquiries/${id}`, { method: 'DELETE' }),
+  saveItemAsNewProduct: (enquiryId, itemId) =>
+    request(`/enquiries/${enquiryId}/items/${itemId}/save-as-product`, { method: 'POST' }),
+  saveAllAsProducts: (enquiryId) =>
+    request(`/enquiries/${enquiryId}/save-all-as-products`, { method: 'POST' }),
 
   importPreview: async (file) => {
     const formData = new FormData()

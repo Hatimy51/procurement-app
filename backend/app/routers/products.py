@@ -54,3 +54,27 @@ def update_product(product_id: str, payload: schemas.ProductCreate, db: Session 
     db.commit()
     db.refresh(product)
     return product
+
+
+@router.delete("/{product_id}")
+def delete_product(product_id: str, db: Session = Depends(get_db)):
+    """
+    Deletes a product along with its price history. Any enquiry items that
+    were linked to it get unlinked (not deleted) rather than left pointing
+    at something that no longer exists — they'll show as "not linked" again,
+    same as before they were ever matched.
+    """
+    product = db.query(models.Product).filter(models.Product.id == product_id).first()
+    if not product:
+        raise HTTPException(404, "Product not found")
+
+    db.query(models.EnquiryItem).filter(
+        models.EnquiryItem.product_id == product_id
+    ).update({"product_id": None})
+    db.query(models.PriceEntry).filter(
+        models.PriceEntry.product_id == product_id
+    ).delete()
+
+    db.delete(product)
+    db.commit()
+    return {"deleted": True, "id": product_id}

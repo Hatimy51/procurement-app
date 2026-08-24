@@ -70,6 +70,23 @@ export default function ProductPriceList() {
     }
   }
 
+  async function handleDeleteProduct(product) {
+    if (
+      !window.confirm(
+        `Delete "${product.name}"? This also removes its price history. ` +
+          `Any enquiry items linked to it will show as "not linked" instead of being deleted.`
+      )
+    )
+      return
+    setError(null)
+    try {
+      await api.deleteProduct(product.id)
+      loadProducts(search)
+    } catch (e) {
+      setError(e.message)
+    }
+  }
+
   async function submitPriceForm(e, productId) {
     e.preventDefault()
     try {
@@ -219,6 +236,9 @@ export default function ProductPriceList() {
                       <button style={styles.linkButton} onClick={() => toggleHistory(product.id)}>
                         {expandedId === product.id ? 'Hide History' : 'History'}
                       </button>
+                      <button style={styles.dangerLinkButton} onClick={() => handleDeleteProduct(product)}>
+                        Delete
+                      </button>
                     </td>
                   </tr>
 
@@ -312,5 +332,6 @@ const styles = {
   primaryButtonSmall: { background: '#2563eb', color: 'white', border: 'none', padding: '6px 10px', borderRadius: 6, cursor: 'pointer', fontSize: 13 },
   secondaryButton: { background: 'white', color: '#333', border: '1px solid #ccc', padding: '8px 14px', borderRadius: 6, cursor: 'pointer', fontSize: 14 },
   linkButton: { background: 'none', border: 'none', color: '#2563eb', cursor: 'pointer', fontSize: 13, marginRight: 10, padding: 0 },
+  dangerLinkButton: { background: 'none', border: 'none', color: '#b91c1c', cursor: 'pointer', fontSize: 13, padding: 0 },
   historyList: { margin: 0, paddingLeft: 20 },
 }

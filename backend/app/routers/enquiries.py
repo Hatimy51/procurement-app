@@ -5,6 +5,7 @@ from app.database import get_db
 from app import models, schemas
 from app.extraction.base import get_extraction_service, ENQUIRY_SCHEMA
 from app.document_readers import extract_text_from_upload
+from app.matching import is_exact_match
 
 router = APIRouter(prefix="/api/enquiries", tags=["enquiries"])
 
@@ -53,13 +54,30 @@ def _ingest_from_text(customer_name: str, site_name: str, raw_text: str, db: Ses
     db.flush()
 
     for item_data in result.data.get("items", []):
+        description = item_data.get("description", "unknown")
+        spec = item_data.get("spec")
+        unit = item_data.get("unit", "unit")
+
+        # Auto-link ONLY on a true exact match across name AND spec AND
+        # unit (see matching.is_exact_match) — matching on name alone used
+        # to silently link e.g. a "2 inch" enquiry to a "4 inch" product
+        # whenever the names happened to be identical. Anything less than
+        # fully exact is left unmatched here and instead gets a one-click
+        # (never automatic) suggestion in the review screen.
+        matched_product = None
+        for candidate in db.query(models.Product).all():
+            if is_exact_match(description, spec, unit, candidate):
+                matched_product = candidate
+                break
+
         item = models.EnquiryItem(
             enquiry_id=enquiry.id,
-            description=item_data.get("description", "unknown"),
-            spec=item_data.get("spec"),
+            description=description,
+            spec=spec,
             brand=item_data.get("brand"),
             quantity=item_data.get("quantity") or 0,
-            unit=item_data.get("unit", "unit"),
+            unit=unit,
+            product_id=matched_product.id if matched_product else None,
         )
         db.add(item)
 
