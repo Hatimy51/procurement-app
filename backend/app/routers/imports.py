@@ -12,8 +12,8 @@ router = APIRouter(prefix="/api/imports", tags=["imports"])
 
 # The Product/Price fields a client's spreadsheet column can be mapped onto.
 # "name" is the only required one — matches Section 4 of the spec (Product
-# needs a name; category/spec/unit/prices are all optional).
-TARGET_FIELDS = ["name", "category", "spec", "unit", "cost_price", "selling_price"]
+# needs a name; category/spec/unit/prices/GST are all optional).
+TARGET_FIELDS = ["name", "category", "spec", "unit", "cost_price", "selling_price", "gst_percent"]
 
 
 @router.post("/preview", response_model=ImportPreviewOut)
@@ -99,11 +99,19 @@ async def commit_import(
         if product:
             products_matched += 1
         else:
+            gst_raw = cell(row, "gst_percent")
+            gst_value = None
+            if gst_raw:
+                try:
+                    gst_value = float(gst_raw.replace("%", "").strip())
+                except ValueError:
+                    gst_value = None
             product = models.Product(
                 name=name,
                 category=cell(row, "category"),
                 spec=cell(row, "spec"),
                 unit=cell(row, "unit"),
+                gst_percent=gst_value,
             )
             db.add(product)
             db.flush()

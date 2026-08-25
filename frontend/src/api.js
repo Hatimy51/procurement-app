@@ -69,4 +69,30 @@ export const api = {
     if (!res.ok) throw new Error(`API error ${res.status}: ${await res.text()}`)
     return res.json()
   },
+
+  listSuppliers: () => request('/suppliers'),
+  createSupplier: (supplier) => request('/suppliers', { method: 'POST', body: JSON.stringify(supplier) }),
+  updateSupplier: (id, supplier) =>
+    request(`/suppliers/${id}`, { method: 'PUT', body: JSON.stringify(supplier) }),
+  deleteSupplier: (id) => request(`/suppliers/${id}`, { method: 'DELETE' }),
+
+  listRfqs: (status) => request(`/rfqs${status ? `?status=${status}` : ''}`),
+  createRfq: (rfq) => request('/rfqs', { method: 'POST', body: JSON.stringify(rfq) }),
+  createRfqsBulk: (payload) => request('/rfqs/bulk', { method: 'POST', body: JSON.stringify(payload) }),
+  ingestQuoteText: (rfqId, rawText) => {
+    const formData = new URLSearchParams()
+    formData.append('raw_text', rawText)
+    return fetch(`${BASE}/rfqs/${rfqId}/ingest-quote`, { method: 'POST', body: formData })
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`API error ${res.status}: ${await res.text()}`)
+        return res.json()
+      })
+  },
+  ingestQuoteFile: async (rfqId, file) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    const res = await fetch(`${BASE}/rfqs/${rfqId}/ingest-quote-file`, { method: 'POST', body: formData })
+    if (!res.ok) throw new Error(`API error ${res.status}: ${await res.text()}`)
+    return res.json()
+  },
 }

@@ -10,6 +10,7 @@ class ProductCreate(BaseModel):
     category: str | None = None
     spec: str | None = None
     unit: str | None = None
+    gst_percent: Decimal | None = None
 
 
 class PriceEntryOut(BaseModel):
@@ -28,6 +29,7 @@ class ProductOut(BaseModel):
     category: str | None
     spec: str | None
     unit: str | None
+    gst_percent: Decimal | None
     created_at: datetime
     price_entries: list[PriceEntryOut] = []
 

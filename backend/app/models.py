@@ -104,6 +104,7 @@ class Product(Base):
     category = Column(String, nullable=True)
     spec = Column(String, nullable=True)
     unit = Column(String, nullable=True)
+    gst_percent = Column(Numeric, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     price_entries = relationship("PriceEntry", back_populates="product", order_by="desc(PriceEntry.date)")
@@ -113,7 +114,9 @@ class Supplier(Base):
     __tablename__ = "suppliers"
     id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
     name = Column(String, nullable=False)
-    contact_info = Column(Text)
+    email = Column(String, nullable=True)
+    phone = Column(String, nullable=True)
+    contact_info = Column(Text)  # legacy free-text field, kept but no longer shown in the UI
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
@@ -123,6 +126,7 @@ class RFQ(Base):
     product_id = Column(UUID(as_uuid=False), ForeignKey("products.id"), nullable=False)
     supplier_id = Column(UUID(as_uuid=False), ForeignKey("suppliers.id"), nullable=False)
     enquiry_item_id = Column(UUID(as_uuid=False), ForeignKey("enquiry_items.id"), nullable=True)
+    quantity = Column(Numeric, nullable=True)
     status = Column(Enum(RFQStatus), default=RFQStatus.pending, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 

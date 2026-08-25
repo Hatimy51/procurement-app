@@ -8,6 +8,7 @@ const TARGET_FIELDS = [
   { key: 'unit', label: 'Unit', required: false },
   { key: 'cost_price', label: 'Cost Price', required: false },
   { key: 'selling_price', label: 'Selling Price', required: false },
+  { key: 'gst_percent', label: 'GST %', required: false },
 ]
 
 export default function Import() {

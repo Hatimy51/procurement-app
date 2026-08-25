@@ -22,6 +22,7 @@ class EnquiryItemWithPrice(BaseModel):
     unit: str
     product_id: str | None
     suggested_price: Decimal | None  # from latest Price Entry, if matched + found
+    gst_percent: Decimal | None = None  # from the linked Product, for quoting math
     price_status: str  # "matched" | "unmatched" | "price_missing"
     # A confident (never auto-applied) product-match suggestion for items
     # that aren't linked yet — see app/matching.py. Null when nothing is

@@ -36,6 +36,7 @@ def _item_out(db: Session, item: models.EnquiryItem):
     used by several endpoints below so the frontend always sees the same
     structure whether an item was edited, linked, or newly created."""
     price, status = _price_status_for_item(db, item)
+    gst_percent = item.product.gst_percent if item.product_id and item.product else None
     return {
         "id": item.id,
         "description": item.description,
@@ -45,6 +46,7 @@ def _item_out(db: Session, item: models.EnquiryItem):
         "unit": item.unit,
         "product_id": item.product_id,
         "suggested_price": price,
+        "gst_percent": gst_percent,
         "price_status": status,
     }
 
@@ -175,6 +177,7 @@ def get_enquiry_detail(
     items_out = []
     for item in enquiry.items:
         price, status = _price_status_for_item(db, item)
+        gst_percent = item.product.gst_percent if item.product_id and item.product else None
         suggestion = None
         if not item.product_id:
             suggestion = suggest_product_match(
@@ -189,6 +192,7 @@ def get_enquiry_detail(
             unit=item.unit,
             product_id=item.product_id,
             suggested_price=price,
+            gst_percent=gst_percent,
             price_status=status,
             suggested_product_id=suggestion.product_id if suggestion else None,
             suggested_product_name=suggestion.product_name if suggestion else None,

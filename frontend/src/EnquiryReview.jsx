@@ -76,6 +76,8 @@ export default function EnquiryReview() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [infoMessage, setInfoMessage] = useState(null)
+  const [selectedIds, setSelectedIds] = useState(new Set())
+  const [bulkWorking, setBulkWorking] = useState(false)
 
   const [ingestOpen, setIngestOpen] = useState(false)
   const [ingestMode, setIngestMode] = useState('paste') // 'paste' | 'file'
@@ -229,6 +231,68 @@ export default function EnquiryReview() {
       }
     } catch (e) {
       setError(e.message)
+    }
+  }
+
+  function toggleSelectEnquiry(id) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function toggleSelectAllEnquiries() {
+    setSelectedIds((prev) =>
+      prev.size === enquiries.length ? new Set() : new Set(enquiries.map((e) => e.id))
+    )
+  }
+
+  async function handleBulkDeleteEnquiries() {
+    if (
+      !window.confirm(`Delete ${selectedIds.size} selected enquiry(ies)? This cannot be undone.`)
+    )
+      return
+    setError(null)
+    setBulkWorking(true)
+    try {
+      await Promise.all([...selectedIds].map((id) => api.deleteEnquiry(id)))
+      setInfoMessage(`${selectedIds.size} enquiry(ies) deleted.`)
+      setSelectedIds(new Set())
+      await loadEnquiries()
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setBulkWorking(false)
+    }
+  }
+
+  async function handleBulkMarkReviewed() {
+    const eligible = enquiries.filter((e) => selectedIds.has(e.id) && e.status === 'new')
+    const skipped = selectedIds.size - eligible.length
+    if (eligible.length === 0) {
+      setError('None of the selected enquiries are eligible — only ones still marked "New" can be reviewed this way.')
+      return
+    }
+    setError(null)
+    setBulkWorking(true)
+    try {
+      const results = await Promise.allSettled(
+        eligible.map((e) => api.markEnquiryReviewed(e.id))
+      )
+      const failed = results.filter((r) => r.status === 'rejected').length
+      setInfoMessage(
+        `${eligible.length - failed} marked as reviewed.` +
+          (failed > 0 ? ` ${failed} failed.` : '') +
+          (skipped > 0 ? ` ${skipped} skipped (not in "New" status).` : '')
+      )
+      setSelectedIds(new Set())
+      await loadEnquiries()
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setBulkWorking(false)
     }
   }
 
@@ -418,7 +482,12 @@ export default function EnquiryReview() {
                   </td>
                   <td style={styles.td}>
                     {item.price_status === 'matched' ? (
-                      <span>₹{item.suggested_price}</span>
+                      <span>
+                        ₹{item.suggested_price}
+                        {item.gst_percent != null && (
+                          <span style={styles.muted}> + {item.gst_percent}% GST</span>
+                        )}
+                      </span>
                     ) : item.price_status === 'price_missing' ? (
                       <span style={styles.missingPrice}>Price Missing</span>
                     ) : (
@@ -584,33 +653,63 @@ export default function EnquiryReview() {
       ) : enquiries.length === 0 ? (
         <p style={styles.muted}>No enquiries yet — submit one to see the extraction in action.</p>
       ) : (
-        <table style={styles.table}>
-          <thead>
-            <tr>
-              <th style={styles.th}>Site</th>
-              <th style={styles.th}>Customer</th>
-              <th style={styles.th}>Items</th>
-              <th style={styles.th}>Status</th>
-              <th style={styles.th}></th>
-            </tr>
-          </thead>
-          <tbody>
-            {enquiries.map((e) => (
-              <tr key={e.id} style={styles.tr}>
-                <td style={styles.td}>{e.site_name}</td>
-                <td style={styles.td}>{e.customer_name}</td>
-                <td style={styles.td}>{e.item_count}</td>
-                <td style={styles.td}>{STATUS_LABEL[e.status] || e.status}</td>
-                <td style={styles.td}>
-                  <button style={styles.linkButton} onClick={() => openDetail(e.id)}>Review</button>
-                  <button style={styles.dangerLinkButton} onClick={() => handleDeleteEnquiry(e.id)}>
-                    Delete
-                  </button>
-                </td>
+        <>
+          {selectedIds.size > 0 && (
+            <div style={styles.bulkBar}>
+              <span>{selectedIds.size} selected</span>
+              <button style={styles.secondaryButtonSmall} onClick={handleBulkMarkReviewed} disabled={bulkWorking}>
+                Mark Reviewed
+              </button>
+              <button style={styles.dangerButtonSmall} onClick={handleBulkDeleteEnquiries} disabled={bulkWorking}>
+                Delete Selected
+              </button>
+              <button style={styles.linkButton} onClick={() => setSelectedIds(new Set())}>
+                Clear selection
+              </button>
+            </div>
+          )}
+          <table style={styles.table}>
+            <thead>
+              <tr>
+                <th style={styles.th}>
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.size === enquiries.length && enquiries.length > 0}
+                    onChange={toggleSelectAllEnquiries}
+                  />
+                </th>
+                <th style={styles.th}>Site</th>
+                <th style={styles.th}>Customer</th>
+                <th style={styles.th}>Items</th>
+                <th style={styles.th}>Status</th>
+                <th style={styles.th}></th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {enquiries.map((e) => (
+                <tr key={e.id} style={styles.tr}>
+                  <td style={styles.td}>
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(e.id)}
+                      onChange={() => toggleSelectEnquiry(e.id)}
+                    />
+                  </td>
+                  <td style={styles.td}>{e.site_name}</td>
+                  <td style={styles.td}>{e.customer_name}</td>
+                  <td style={styles.td}>{e.item_count}</td>
+                  <td style={styles.td}>{STATUS_LABEL[e.status] || e.status}</td>
+                  <td style={styles.td}>
+                    <button style={styles.linkButton} onClick={() => openDetail(e.id)}>Review</button>
+                    <button style={styles.dangerLinkButton} onClick={() => handleDeleteEnquiry(e.id)}>
+                      Delete
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
       )}
     </div>
   )
@@ -645,5 +744,8 @@ const styles = {
   primaryButton: { background: '#2563eb', color: 'white', border: 'none', padding: '8px 14px', borderRadius: 6, cursor: 'pointer', fontSize: 14 },
   secondaryButton: { background: 'white', color: '#333', border: '1px solid #ccc', padding: '8px 14px', borderRadius: 6, cursor: 'pointer', fontSize: 14 },
   linkButton: { background: 'none', border: 'none', color: '#2563eb', cursor: 'pointer', fontSize: 13, padding: 0 },
+  bulkBar: { display: 'flex', alignItems: 'center', gap: 10, background: '#f0f4ff', border: '1px solid #c7d7fe', borderRadius: 6, padding: '8px 12px', marginBottom: 12, fontSize: 13 },
+  secondaryButtonSmall: { background: 'white', color: '#333', border: '1px solid #ccc', padding: '5px 10px', borderRadius: 6, cursor: 'pointer', fontSize: 13 },
+  dangerButtonSmall: { background: '#b91c1c', color: 'white', border: 'none', padding: '5px 10px', borderRadius: 6, cursor: 'pointer', fontSize: 13 },
   rawText: { background: '#f5f5f5', padding: 10, borderRadius: 6, whiteSpace: 'pre-wrap', fontSize: 13 },
 }
