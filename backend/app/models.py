@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
-    Column, String, Text, ForeignKey, DateTime, Numeric, Enum, Boolean
+    Column, String, Text, ForeignKey, DateTime, Numeric, Enum, Boolean, UniqueConstraint
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
@@ -117,6 +117,33 @@ class Supplier(Base):
     email = Column(String, nullable=True)
     phone = Column(String, nullable=True)
     contact_info = Column(Text)  # legacy free-text field, kept but no longer shown in the UI
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class ProductSupplierLink(Base):
+    """
+    Which suppliers handle which specific products — built two ways: the
+    user can link them manually on the Supplier form, and the app also
+    auto-creates a link every time an RFQ is actually sent to a supplier
+    for a product, so the data builds itself from real usage over time.
+    """
+    __tablename__ = "product_supplier_links"
+    __table_args__ = (UniqueConstraint("product_id", "supplier_id", name="uq_product_supplier"),)
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    product_id = Column(UUID(as_uuid=False), ForeignKey("products.id"), nullable=False)
+    supplier_id = Column(UUID(as_uuid=False), ForeignKey("suppliers.id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class CategorySupplierLink(Base):
+    """Broader version of the above — 'this supplier handles our whole
+    Pipes category,' not just one specific product. Category is stored as
+    the plain string used on Product.category, not a separate table."""
+    __tablename__ = "category_supplier_links"
+    __table_args__ = (UniqueConstraint("category", "supplier_id", name="uq_category_supplier"),)
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    category = Column(String, nullable=False)
+    supplier_id = Column(UUID(as_uuid=False), ForeignKey("suppliers.id"), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 

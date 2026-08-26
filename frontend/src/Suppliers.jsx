@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { api } from './api'
 import RequestQuoteWizard from './RequestQuoteWizard'
 
@@ -17,11 +17,18 @@ export default function Suppliers() {
 
   const [supplierFormOpen, setSupplierFormOpen] = useState(false)
   const [editingSupplierId, setEditingSupplierId] = useState(null)
-  const [supplierForm, setSupplierForm] = useState({ name: '', email: '', phone: '' })
+  const [supplierForm, setSupplierForm] = useState({
+    name: '', email: '', phone: '', linked_product_ids: [], linked_categories: [],
+  })
+
+  const categories = useMemo(
+    () => [...new Set(products.map((p) => p.category).filter(Boolean))].sort(),
+    [products]
+  )
 
   const [wizardOpen, setWizardOpen] = useState(false)
 
-  const [ingestingRfqId, setIngestingRfqId] = useState(null)
+  const [ingestingSupplierId, setIngestingSupplierId] = useState(null)
   const [ingestMode, setIngestMode] = useState('paste')
   const [ingestText, setIngestText] = useState('')
   const [ingestFile, setIngestFile] = useState(null)
@@ -64,13 +71,19 @@ export default function Suppliers() {
 
   function openEditSupplierForm(supplier) {
     setEditingSupplierId(supplier.id)
-    setSupplierForm({ name: supplier.name, email: supplier.email || '', phone: supplier.phone || '' })
+    setSupplierForm({
+      name: supplier.name,
+      email: supplier.email || '',
+      phone: supplier.phone || '',
+      linked_product_ids: supplier.linked_product_ids || [],
+      linked_categories: supplier.linked_categories || [],
+    })
     setSupplierFormOpen(true)
   }
 
   function openNewSupplierForm() {
     setEditingSupplierId(null)
-    setSupplierForm({ name: '', email: '', phone: '' })
+    setSupplierForm({ name: '', email: '', phone: '', linked_product_ids: [], linked_categories: [] })
     setSupplierFormOpen(!supplierFormOpen)
   }
 
@@ -102,14 +115,14 @@ export default function Suppliers() {
     loadAll()
   }
 
-  function openIngestFor(rfqId) {
-    setIngestingRfqId(ingestingRfqId === rfqId ? null : rfqId)
+  function openIngestFor(supplierId) {
+    setIngestingSupplierId(ingestingSupplierId === supplierId ? null : supplierId)
     setIngestText('')
     setIngestFile(null)
     setError(null)
   }
 
-  async function submitIngest(rfqId) {
+  async function submitIngest(supplierId) {
     setIngesting(true)
     setError(null)
     try {
@@ -120,20 +133,31 @@ export default function Suppliers() {
           setIngesting(false)
           return
         }
-        result = await api.ingestQuoteFile(rfqId, ingestFile)
+        result = await api.ingestQuoteFileForSupplier(supplierId, ingestFile)
       } else {
         if (!ingestText.trim()) {
           setError('Paste the supplier\'s reply first.')
           setIngesting(false)
           return
         }
-        result = await api.ingestQuoteText(rfqId, ingestText)
+        result = await api.ingestQuoteForSupplierText(supplierId, ingestText)
       }
-      setInfoMessage(
-        `Price captured: ₹${result.extracted_price} — added to the product's price history. ` +
-        `Set the selling price on the Product & Price List screen when ready.`
-      )
-      setIngestingRfqId(null)
+      const parts = []
+      if (result.priced.length > 0) {
+        parts.push(
+          `Priced: ${result.priced.map((p) => `${p.product_name} (₹${p.price})`).join(', ')}.`
+        )
+      }
+      if (result.still_pending.length > 0) {
+        parts.push(`Still awaiting a price: ${result.still_pending.join(', ')}.`)
+      }
+      if (result.extra_items_in_reply_not_matched.length > 0) {
+        parts.push(
+          `Not matched to anything we asked about: ${result.extra_items_in_reply_not_matched.join(', ')}.`
+        )
+      }
+      setInfoMessage(parts.join(' ') || 'No prices could be matched from that reply.')
+      setIngestingSupplierId(null)
       loadAll()
     } catch (e) {
       setError(e.message)
@@ -142,7 +166,15 @@ export default function Suppliers() {
     }
   }
 
-  const pending = rfqs.filter((r) => r.status === 'pending')
+  // Group pending RFQs by supplier — a supplier's reply is ingested once,
+  // against everything currently pending for them, not one row at a time.
+  const pendingBySupplier = rfqs
+    .filter((r) => r.status === 'pending')
+    .reduce((acc, r) => {
+      if (!acc[r.supplier_id]) acc[r.supplier_id] = { supplier_name: r.supplier_name, items: [] }
+      acc[r.supplier_id].items.push(r)
+      return acc
+    }, {})
   const resolved = rfqs.filter((r) => r.status !== 'pending')
 
   return (
@@ -199,6 +231,59 @@ export default function Suppliers() {
               />
             </div>
           </div>
+
+          <div style={styles.field}>
+            <label style={styles.label}>Linked Categories</label>
+            <p style={styles.muted}>This supplier is your go-to for everything in these categories.</p>
+            {categories.length === 0 ? (
+              <p style={styles.muted}>No categories yet — add products with a category first.</p>
+            ) : (
+              <div style={styles.checkboxGrid}>
+                {categories.map((cat) => (
+                  <label key={cat} style={styles.checkboxLabel}>
+                    <input
+                      type="checkbox"
+                      checked={supplierForm.linked_categories.includes(cat)}
+                      onChange={(e) => {
+                        const next = e.target.checked
+                          ? [...supplierForm.linked_categories, cat]
+                          : supplierForm.linked_categories.filter((c) => c !== cat)
+                        setSupplierForm({ ...supplierForm, linked_categories: next })
+                      }}
+                    />{' '}
+                    {cat}
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div style={styles.field}>
+            <label style={styles.label}>Linked Products</label>
+            <p style={styles.muted}>Specific products this supplier handles (in addition to any category above).</p>
+            {products.length === 0 ? (
+              <p style={styles.muted}>No products yet.</p>
+            ) : (
+              <div style={styles.checkboxGridScroll}>
+                {products.map((p) => (
+                  <label key={p.id} style={styles.checkboxLabel}>
+                    <input
+                      type="checkbox"
+                      checked={supplierForm.linked_product_ids.includes(p.id)}
+                      onChange={(e) => {
+                        const next = e.target.checked
+                          ? [...supplierForm.linked_product_ids, p.id]
+                          : supplierForm.linked_product_ids.filter((id) => id !== p.id)
+                        setSupplierForm({ ...supplierForm, linked_product_ids: next })
+                      }}
+                    />{' '}
+                    {p.name}{p.category ? ` (${p.category})` : ''}
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+
           <div style={styles.formActions}>
             <button type="submit" style={styles.primaryButton}>Save Supplier</button>
             <button type="button" style={styles.secondaryButton} onClick={() => setSupplierFormOpen(false)}>
@@ -212,16 +297,22 @@ export default function Suppliers() {
         <p style={styles.muted}>No suppliers yet — add one to start creating RFQs.</p>
       ) : (
         <ul style={styles.supplierList}>
-          {suppliers.map((s) => (
-            <li key={s.id}>
-              {s.name}
-              {s.email && <span style={styles.muted}> — {s.email}</span>}
-              {s.phone && <span style={styles.muted}> — {s.phone}</span>}
-              {' '}
-              <button style={styles.linkButton} onClick={() => openEditSupplierForm(s)}>Edit</button>
-              <button style={styles.dangerLinkButton} onClick={() => handleDeleteSupplier(s)}>Delete</button>
-            </li>
-          ))}
+          {suppliers.map((s) => {
+            const linkCount = (s.linked_product_ids?.length || 0) + (s.linked_categories?.length || 0)
+            return (
+              <li key={s.id}>
+                {s.name}
+                {s.email && <span style={styles.muted}> — {s.email}</span>}
+                {s.phone && <span style={styles.muted}> — {s.phone}</span>}
+                {linkCount > 0 && (
+                  <span style={styles.muted}> · linked to {s.linked_categories?.length || 0} categor{s.linked_categories?.length === 1 ? 'y' : 'ies'}, {s.linked_product_ids?.length || 0} product(s)</span>
+                )}
+                {' '}
+                <button style={styles.linkButton} onClick={() => openEditSupplierForm(s)}>Edit</button>
+                <button style={styles.dangerLinkButton} onClick={() => handleDeleteSupplier(s)}>Delete</button>
+              </li>
+            )
+          })}
         </ul>
       )}
 
@@ -241,77 +332,79 @@ export default function Suppliers() {
         />
       )}
 
-      <h4 style={{ marginTop: 20 }}>Awaiting reply ({pending.length})</h4>
-      {pending.length === 0 ? (
+      <h4 style={{ marginTop: 20 }}>Awaiting reply</h4>
+      {Object.keys(pendingBySupplier).length === 0 ? (
         <p style={styles.muted}>Nothing pending.</p>
       ) : (
-        <table style={styles.table}>
-          <tbody>
-            {pending.map((r) => (
-              <>
-                <tr key={r.id} style={styles.tr}>
-                  <td style={styles.td}>
-                    <strong>{r.product_name}</strong>
-                    {r.quantity != null && <span style={styles.muted}> (qty {r.quantity})</span>}
-                  </td>
-                  <td style={styles.td}>{r.supplier_name}</td>
-                  <td style={styles.td}>{STATUS_LABEL[r.status]}</td>
-                  <td style={styles.td}>
-                    <button style={styles.linkButton} onClick={() => openIngestFor(r.id)}>
-                      {ingestingRfqId === r.id ? 'Cancel' : 'Ingest their reply'}
-                    </button>
-                  </td>
-                </tr>
-                {ingestingRfqId === r.id && (
-                  <tr>
-                    <td colSpan={4} style={styles.subRow}>
-                      <div style={styles.modeToggle}>
-                        <button
-                          type="button"
-                          style={ingestMode === 'paste' ? styles.modeButtonActive : styles.modeButton}
-                          onClick={() => setIngestMode('paste')}
-                        >
-                          Paste text
-                        </button>
-                        <button
-                          type="button"
-                          style={ingestMode === 'file' ? styles.modeButtonActive : styles.modeButton}
-                          onClick={() => setIngestMode('file')}
-                        >
-                          Upload file
-                        </button>
-                      </div>
-                      {ingestMode === 'paste' ? (
-                        <textarea
-                          style={styles.textarea}
-                          rows={4}
-                          placeholder="Paste the supplier's reply email here…"
-                          value={ingestText}
-                          onChange={(e) => setIngestText(e.target.value)}
-                        />
-                      ) : (
-                        <input
-                          type="file"
-                          accept=".xlsx,.xls,.csv,.png,.jpg,.jpeg,.webp"
-                          onChange={(e) => setIngestFile(e.target.files?.[0] || null)}
-                        />
-                      )}
-                      <div style={{ marginTop: 8 }}>
-                        <button
-                          style={styles.primaryButton}
-                          onClick={() => submitIngest(r.id)}
-                          disabled={ingesting}
-                        >
-                          {ingesting ? 'Reading reply…' : 'Extract Price'}
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
+        Object.entries(pendingBySupplier).map(([supplierId, group]) => (
+          <div key={supplierId} style={styles.supplierGroup}>
+            <div style={styles.supplierGroupHeader}>
+              <strong>{group.supplier_name}</strong>
+              <span style={styles.muted}> — {group.items.length} item(s) awaiting a price</span>
+              <button style={styles.linkButton} onClick={() => openIngestFor(supplierId)}>
+                {ingestingSupplierId === supplierId ? 'Cancel' : 'Ingest their reply'}
+              </button>
+            </div>
+            <ul style={styles.pendingItemList}>
+              {group.items.map((r) => (
+                <li key={r.id}>
+                  {r.product_name}
+                  {r.quantity != null && <span style={styles.muted}> (qty {r.quantity})</span>}
+                </li>
+              ))}
+            </ul>
+
+            {ingestingSupplierId === supplierId && (
+              <div style={styles.subRow}>
+                <p style={styles.muted}>
+                  Paste or upload the supplier's ONE reply — it can cover any number of the items
+                  above. Whatever it prices gets matched and updated; anything it doesn't mention
+                  stays pending.
+                </p>
+                <div style={styles.modeToggle}>
+                  <button
+                    type="button"
+                    style={ingestMode === 'paste' ? styles.modeButtonActive : styles.modeButton}
+                    onClick={() => setIngestMode('paste')}
+                  >
+                    Paste text
+                  </button>
+                  <button
+                    type="button"
+                    style={ingestMode === 'file' ? styles.modeButtonActive : styles.modeButton}
+                    onClick={() => setIngestMode('file')}
+                  >
+                    Upload file
+                  </button>
+                </div>
+                {ingestMode === 'paste' ? (
+                  <textarea
+                    style={styles.textarea}
+                    rows={4}
+                    placeholder="Paste the supplier's reply email here…"
+                    value={ingestText}
+                    onChange={(e) => setIngestText(e.target.value)}
+                  />
+                ) : (
+                  <input
+                    type="file"
+                    accept=".xlsx,.xls,.csv,.png,.jpg,.jpeg,.webp"
+                    onChange={(e) => setIngestFile(e.target.files?.[0] || null)}
+                  />
                 )}
-              </>
-            ))}
-          </tbody>
-        </table>
+                <div style={{ marginTop: 8 }}>
+                  <button
+                    style={styles.primaryButton}
+                    onClick={() => submitIngest(supplierId)}
+                    disabled={ingesting}
+                  >
+                    {ingesting ? 'Reading reply…' : 'Extract Prices'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        ))
       )}
 
       {resolved.length > 0 && (
@@ -342,7 +435,10 @@ const styles = {
   headerRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 20 },
   formCard: { border: '1px solid #ddd', borderRadius: 8, padding: 16, margin: '12px 0', background: '#f9fafb' },
   formGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 },
-  field: { display: 'flex', flexDirection: 'column', gap: 4 },
+  field: { display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 12 },
+  checkboxGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, fontSize: 13 },
+  checkboxGridScroll: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, fontSize: 13, maxHeight: 180, overflowY: 'auto', border: '1px solid #eee', borderRadius: 6, padding: 8 },
+  checkboxLabel: { display: 'flex', alignItems: 'center', gap: 4 },
   label: { fontSize: 12, color: '#555', fontWeight: 600 },
   input: { padding: 8, border: '1px solid #ccc', borderRadius: 6, fontSize: 14, boxSizing: 'border-box' },
   textarea: { width: '100%', padding: 8, border: '1px solid #ccc', borderRadius: 6, fontSize: 14, boxSizing: 'border-box', fontFamily: 'inherit' },
@@ -351,6 +447,9 @@ const styles = {
   tr: { borderBottom: '1px solid #eee' },
   td: { padding: '8px 6px' },
   subRow: { padding: '8px 6px', background: '#fafafa' },
+  supplierGroup: { border: '1px solid #eee', borderRadius: 6, padding: 12, marginBottom: 10 },
+  supplierGroupHeader: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, fontSize: 14 },
+  pendingItemList: { margin: '4px 0 0 0', paddingLeft: 20, fontSize: 13, color: '#555' },
   modeToggle: { display: 'flex', gap: 4, marginBottom: 8 },
   modeButton: { background: 'white', border: '1px solid #ccc', padding: '6px 12px', borderRadius: 6, cursor: 'pointer', fontSize: 13, color: '#555' },
   modeButtonActive: { background: '#2563eb', border: '1px solid #2563eb', padding: '6px 12px', borderRadius: 6, cursor: 'pointer', fontSize: 13, color: 'white' },

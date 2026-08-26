@@ -8,6 +8,8 @@ from app.database import get_db
 from app import models
 from app.extraction.base import get_extraction_service, SUPPLIER_QUOTE_SCHEMA
 from app.document_readers import extract_text_from_upload
+from app.matching import match_items_to_candidates
+from app.linking import ensure_product_supplier_link
 
 router = APIRouter(prefix="/api/rfqs", tags=["rfqs"])
 
@@ -42,6 +44,7 @@ def create_rfq(payload: RFQCreate, db: Session = Depends(get_db)):
         status=models.RFQStatus.pending,
     )
     db.add(rfq)
+    ensure_product_supplier_link(db, payload.product_id, payload.supplier_id)
     db.commit()
     db.refresh(rfq)
     return _rfq_out(rfq)
@@ -98,6 +101,7 @@ def create_rfqs_bulk(payload: BulkRFQCreate, db: Session = Depends(get_db)):
                 status=models.RFQStatus.pending,
             )
             db.add(rfq)
+            ensure_product_supplier_link(db, item.product_id, supplier_id)
             created.append(rfq)
     db.commit()
 
@@ -106,6 +110,73 @@ def create_rfqs_bulk(payload: BulkRFQCreate, db: Session = Depends(get_db)):
         "items_count": len(payload.items),
         "suppliers_count": len(payload.supplier_ids),
     }
+
+
+class RFQGroup(BaseModel):
+    """One 'send these specific items to these specific suppliers'
+    assignment — the RFQ wizard lets the Purchaser build several of these,
+    e.g. items 1,2,4 to Supplier XYZ and items 3,5 to Supplier ABC, in one
+    submission."""
+    items: list[BulkRFQItem]
+    supplier_ids: list[str]
+
+
+class GroupedRFQCreate(BaseModel):
+    groups: list[RFQGroup]
+
+
+@router.post("/bulk-grouped")
+def create_rfqs_bulk_grouped(payload: GroupedRFQCreate, db: Session = Depends(get_db)):
+    """
+    The real "Request Quote" flow: different subsets of the originally
+    selected items can go to different suppliers, not just one flat
+    cross-product. Validates every product/supplier ID across ALL groups
+    BEFORE creating anything, so this is all-or-nothing — either every
+    group's RFQs get created, or none do, rather than leaving a partial
+    mess if one group references something invalid.
+    """
+    if not payload.groups:
+        raise HTTPException(400, "Add at least one group.")
+
+    all_product_ids = set()
+    all_supplier_ids = set()
+    for group in payload.groups:
+        if not group.items:
+            raise HTTPException(400, "Every group needs at least one item.")
+        if not group.supplier_ids:
+            raise HTTPException(400, "Every group needs at least one supplier.")
+        all_product_ids.update(i.product_id for i in group.items)
+        all_supplier_ids.update(group.supplier_ids)
+
+    found_products = {
+        p.id for p in db.query(models.Product).filter(models.Product.id.in_(all_product_ids)).all()
+    }
+    missing_products = all_product_ids - found_products
+    if missing_products:
+        raise HTTPException(404, f"Product(s) not found: {', '.join(missing_products)}")
+
+    found_suppliers = {
+        s.id for s in db.query(models.Supplier).filter(models.Supplier.id.in_(all_supplier_ids)).all()
+    }
+    missing_suppliers = all_supplier_ids - found_suppliers
+    if missing_suppliers:
+        raise HTTPException(404, f"Supplier(s) not found: {', '.join(missing_suppliers)}")
+
+    total_created = 0
+    for group in payload.groups:
+        for item in group.items:
+            for supplier_id in group.supplier_ids:
+                db.add(models.RFQ(
+                    product_id=item.product_id,
+                    supplier_id=supplier_id,
+                    quantity=item.quantity,
+                    status=models.RFQStatus.pending,
+                ))
+                ensure_product_supplier_link(db, item.product_id, supplier_id)
+                total_created += 1
+    db.commit()
+
+    return {"rfqs_created": total_created, "groups_count": len(payload.groups)}
 
 
 def _rfq_out(rfq: models.RFQ):
@@ -130,84 +201,97 @@ def list_rfqs(status: str | None = None, db: Session = Depends(get_db)):
     return [_rfq_out(r) for r in rfqs]
 
 
-def _ingest_quote_text(rfq: models.RFQ, raw_text: str, db: Session):
+def _ingest_quote_for_supplier(supplier_id: str, raw_text: str, db: Session):
     """
-    Shared core: read a supplier's reply (however it arrived), extract a
-    price, create a SupplierQuote record + a new PriceEntry (the same
-    self-building price mechanism as Import, just sourced from a real
-    supplier reply instead of a bulk file), and mark the RFQ resolved.
+    Reads ONE supplier reply that may cover several of the RFQs we sent
+    them, extracts every priced item in it, and matches each one back to
+    the correct pending RFQ — updating whichever it can confidently match
+    and leaving the rest pending. This is the realistic shape of how a
+    supplier actually replies to a multi-item RFQ: one email, several
+    items, not one email per item.
+    """
+    supplier = db.query(models.Supplier).filter(models.Supplier.id == supplier_id).first()
+    if not supplier:
+        raise HTTPException(404, "Supplier not found")
 
-    v1 simplification: an RFQ is tied to one product, so this takes the
-    first extracted item's price rather than trying to match multiple
-    items in a single reply — worth revisiting if suppliers commonly
-    quote several products in one email reply to a single RFQ.
-    """
+    pending_rfqs = (
+        db.query(models.RFQ)
+        .filter(models.RFQ.supplier_id == supplier_id, models.RFQ.status == models.RFQStatus.pending)
+        .all()
+    )
+    if not pending_rfqs:
+        raise HTTPException(400, "No pending RFQs for this supplier — nothing to match a reply against.")
+
     extraction_service = get_extraction_service()
     try:
         result = extraction_service.extract(raw_text, SUPPLIER_QUOTE_SCHEMA)
     except Exception as e:
         raise HTTPException(500, f"Extraction failed: {e}")
 
-    items = result.data.get("items", [])
-    if not items or items[0].get("price") is None:
+    extracted_items = result.data.get("items", [])
+    if not extracted_items:
         raise HTTPException(
             400,
-            "Could not find a price in that reply. You can still add the price "
+            "Could not find any priced items in that reply. You can still add prices "
             "manually on the Product & Price List screen.",
         )
 
-    extracted_price = items[0]["price"]
-
-    supplier_quote = models.SupplierQuote(
-        rfq_id=rfq.id,
-        raw_source=raw_text,
-        extracted_price=extracted_price,
-        extraction_confidence=result.confidence,
+    candidate_products = [rfq.product for rfq in pending_rfqs if rfq.product]
+    matches, unmatched_products, unmatched_item_indices = match_items_to_candidates(
+        extracted_items, candidate_products
     )
-    db.add(supplier_quote)
 
-    price_entry = models.PriceEntry(
-        product_id=rfq.product_id,
-        cost_price=extracted_price,
-        selling_price=None,  # Purchaser adds markup/selling price separately
-        source=models.PriceSource.supplier_quote,
-    )
-    db.add(price_entry)
+    rfqs_by_product_id = {rfq.product_id: rfq for rfq in pending_rfqs}
+    priced = []
+    for product, item, score in matches:
+        rfq = rfqs_by_product_id[product.id]
+        price = item["price"]
 
-    rfq.status = models.RFQStatus.quote_received
+        db.add(models.SupplierQuote(
+            rfq_id=rfq.id,
+            raw_source=raw_text,
+            extracted_price=price,
+            extraction_confidence=result.confidence,
+        ))
+        db.add(models.PriceEntry(
+            product_id=product.id,
+            cost_price=price,
+            selling_price=None,
+            source=models.PriceSource.supplier_quote,
+        ))
+        rfq.status = models.RFQStatus.quote_received
+        priced.append({"product_name": product.name, "price": price, "match_score": score})
+
     db.commit()
 
     return {
-        "rfq": _rfq_out(rfq),
-        "extracted_price": extracted_price,
-        "extraction_confidence": result.confidence,
+        "priced": priced,
+        "still_pending": [p.name for p in unmatched_products],
+        "extra_items_in_reply_not_matched": [
+            extracted_items[i].get("description") for i in unmatched_item_indices
+        ],
     }
 
 
-@router.post("/{rfq_id}/ingest-quote")
-def ingest_quote_text(rfq_id: str, raw_text: str = Form(...), db: Session = Depends(get_db)):
-    """Ingest from pasted text (the supplier's reply email body)."""
-    rfq = db.query(models.RFQ).filter(models.RFQ.id == rfq_id).first()
-    if not rfq:
-        raise HTTPException(404, "RFQ not found")
-    return _ingest_quote_text(rfq, raw_text, db)
+@router.post("/ingest-quote-for-supplier")
+def ingest_quote_for_supplier_text(
+    supplier_id: str = Form(...), raw_text: str = Form(...), db: Session = Depends(get_db)
+):
+    """Ingest a supplier's reply from pasted text — covers however many of
+    their pending RFQs it mentions, in one action."""
+    return _ingest_quote_for_supplier(supplier_id, raw_text, db)
 
 
-@router.post("/{rfq_id}/ingest-quote-file")
-async def ingest_quote_file(rfq_id: str, file: UploadFile = File(...), db: Session = Depends(get_db)):
-    """Ingest from an uploaded file (Excel/CSV/screenshot of the reply) —
-    same document readers as the enquiry-side upload path."""
-    rfq = db.query(models.RFQ).filter(models.RFQ.id == rfq_id).first()
-    if not rfq:
-        raise HTTPException(404, "RFQ not found")
-
+@router.post("/ingest-quote-file-for-supplier")
+async def ingest_quote_file_for_supplier(
+    supplier_id: str = Form(...), file: UploadFile = File(...), db: Session = Depends(get_db)
+):
+    """Same as above, from an uploaded file (Excel/CSV/screenshot)."""
     file_bytes = await file.read()
     try:
         raw_text = extract_text_from_upload(file.filename, file_bytes)
     except ValueError as e:
         raise HTTPException(400, str(e))
-
     if not raw_text.strip():
         raise HTTPException(400, "Could not read any text from this file.")
-
-    return _ingest_quote_text(rfq, raw_text, db)
+    return _ingest_quote_for_supplier(supplier_id, raw_text, db)

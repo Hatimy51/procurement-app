@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { api } from './api'
 
 export default function RequestQuoteWizard({ products, suppliers, onDone, onCancel }) {
@@ -10,7 +10,16 @@ export default function RequestQuoteWizard({ products, suppliers, onDone, onCanc
   const [quantities, setQuantities] = useState({}) // productId -> quantity string
   const [selectedCategories, setSelectedCategories] = useState(new Set())
 
-  const [selectedSupplierIds, setSelectedSupplierIds] = useState(new Set())
+  // Resolved once, when moving to step 2 — the fixed working set for the
+  // group-builder below. [{product_id, name, quantity}]
+  const [resolvedItems, setResolvedItems] = useState([])
+
+  // Groups built so far: [{ id, productIds: Set, supplierIds: Set }]
+  const [groups, setGroups] = useState([])
+  const [builderProductIds, setBuilderProductIds] = useState(new Set())
+  const [builderSupplierIds, setBuilderSupplierIds] = useState(new Set())
+  const [suggestedSuppliers, setSuggestedSuppliers] = useState(suppliers.map((s) => ({ ...s, linked: false })))
+
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState(null)
 
@@ -31,8 +40,6 @@ export default function RequestQuoteWizard({ products, suppliers, onDone, onCanc
   }, [products, search])
 
   function switchMode(newMode) {
-    // Switching modes clears the other's selections — products and
-    // categories are mutually exclusive, per the spec.
     setMode(newMode)
     setSelectedProductIds(new Set())
     setSelectedCategories(new Set())
@@ -62,8 +69,51 @@ export default function RequestQuoteWizard({ products, suppliers, onDone, onCanc
       ? selectedProductIds.size
       : products.filter((p) => selectedCategories.has(p.category)).length
 
-  function toggleSupplier(id) {
-    setSelectedSupplierIds((prev) => {
+  function goToStep2() {
+    const items =
+      mode === 'products'
+        ? [...selectedProductIds].map((id) => {
+            const p = products.find((pr) => pr.id === id)
+            return { product_id: id, name: p?.name || id, quantity: quantities[id] || null }
+          })
+        : products
+            .filter((p) => selectedCategories.has(p.category))
+            .map((p) => ({ product_id: p.id, name: p.name, quantity: null }))
+
+    setResolvedItems(items)
+    setGroups([])
+    setBuilderProductIds(new Set())
+    setBuilderSupplierIds(new Set())
+    setError(null)
+    setStep(2)
+  }
+
+  // Items not yet claimed by any existing group.
+  const assignedProductIds = useMemo(
+    () => new Set(groups.flatMap((g) => [...g.productIds])),
+    [groups]
+  )
+  const unassignedItems = useMemo(
+    () => resolvedItems.filter((i) => !assignedProductIds.has(i.product_id)),
+    [resolvedItems, assignedProductIds]
+  )
+
+  // Re-rank the supplier picker (linked-first) whenever the builder's
+  // currently-checked items change — the more specific the selection,
+  // the more relevant the ordering gets.
+  useEffect(() => {
+    if (builderProductIds.size === 0) {
+      setSuggestedSuppliers(suppliers.map((s) => ({ ...s, linked: false })))
+      return
+    }
+    api
+      .getSuggestedSuppliers([...builderProductIds])
+      .then(setSuggestedSuppliers)
+      .catch(() => setSuggestedSuppliers(suppliers.map((s) => ({ ...s, linked: false }))))
+  }, [builderProductIds, suppliers])
+
+  function toggleBuilderProduct(id) {
+    setBuilderProductIds((prev) => {
       const next = new Set(prev)
       if (next.has(id)) next.delete(id)
       else next.add(id)
@@ -71,35 +121,71 @@ export default function RequestQuoteWizard({ products, suppliers, onDone, onCanc
     })
   }
 
+  function toggleBuilderSupplier(id) {
+    setBuilderSupplierIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function addGroup() {
+    if (builderProductIds.size === 0) {
+      setError('Select at least one item for this group.')
+      return
+    }
+    if (builderSupplierIds.size === 0) {
+      setError('Select at least one supplier for this group.')
+      return
+    }
+    setError(null)
+    setGroups((prev) => [
+      ...prev,
+      { id: crypto.randomUUID(), productIds: new Set(builderProductIds), supplierIds: new Set(builderSupplierIds) },
+    ])
+    setBuilderProductIds(new Set())
+    setBuilderSupplierIds(new Set())
+  }
+
+  function removeGroup(groupId) {
+    setGroups((prev) => prev.filter((g) => g.id !== groupId))
+  }
+
+  function itemName(productId) {
+    return resolvedItems.find((i) => i.product_id === productId)?.name || productId
+  }
+  function supplierName(supplierId) {
+    return suppliers.find((s) => s.id === supplierId)?.name || supplierId
+  }
+
   async function submit() {
     setError(null)
-    let items
-    if (mode === 'products') {
-      items = [...selectedProductIds].map((id) => ({
-        product_id: id,
-        quantity: quantities[id] || null,
-      }))
-    } else {
-      // category mode expands to every product currently in the selected
-      // categories — no per-item quantity, since the point is getting a
-      // full-category price check rather than a specific order quantity
-      items = products
-        .filter((p) => selectedCategories.has(p.category))
-        .map((p) => ({ product_id: p.id, quantity: null }))
+    if (unassignedItems.length > 0) {
+      setError(
+        `${unassignedItems.length} item(s) haven't been assigned to a supplier yet: ` +
+          unassignedItems.map((i) => i.name).join(', ')
+      )
+      return
+    }
+    if (groups.length === 0) {
+      setError('Add at least one group before submitting.')
+      return
     }
 
-    if (items.length === 0) {
-      setError('Select at least one product or category.')
-      return
-    }
-    if (selectedSupplierIds.size === 0) {
-      setError('Select at least one supplier.')
-      return
+    const payload = {
+      groups: groups.map((g) => ({
+        items: [...g.productIds].map((pid) => ({
+          product_id: pid,
+          quantity: resolvedItems.find((i) => i.product_id === pid)?.quantity || null,
+        })),
+        supplier_ids: [...g.supplierIds],
+      })),
     }
 
     setSubmitting(true)
     try {
-      const result = await api.createRfqsBulk({ items, supplier_ids: [...selectedSupplierIds] })
+      const result = await api.createRfqsBulkGrouped(payload)
       onDone(result)
     } catch (e) {
       setError(e.message)
@@ -113,7 +199,7 @@ export default function RequestQuoteWizard({ products, suppliers, onDone, onCanc
       <div style={styles.stepIndicator}>
         <span style={step === 1 ? styles.stepActive : styles.step}>1. Select items</span>
         <span style={styles.stepArrow}>→</span>
-        <span style={step === 2 ? styles.stepActive : styles.step}>2. Select suppliers</span>
+        <span style={step === 2 ? styles.stepActive : styles.step}>2. Assign suppliers</span>
       </div>
 
       {error && <div style={styles.errorBanner}>{error}</div>}
@@ -202,7 +288,7 @@ export default function RequestQuoteWizard({ products, suppliers, onDone, onCanc
               {categories.length === 0 ? (
                 <p style={styles.muted}>No categories found — products need a Category set first.</p>
               ) : (
-                <ul style={styles.categoryList}>
+                <ul style={styles.plainList}>
                   {categories.map((cat) => {
                     const count = products.filter((p) => p.category === cat).length
                     return (
@@ -224,11 +310,7 @@ export default function RequestQuoteWizard({ products, suppliers, onDone, onCanc
           )}
 
           <div style={styles.formActions}>
-            <button
-              style={styles.primaryButton}
-              onClick={() => setStep(2)}
-              disabled={itemCount === 0}
-            >
+            <button style={styles.primaryButton} onClick={goToStep2} disabled={itemCount === 0}>
               Next ({itemCount} item{itemCount === 1 ? '' : 's'} selected) →
             </button>
             <button style={styles.secondaryButton} onClick={onCancel}>Cancel</button>
@@ -239,33 +321,85 @@ export default function RequestQuoteWizard({ products, suppliers, onDone, onCanc
       {step === 2 && (
         <div>
           <p style={styles.muted}>
-            Sending an RFQ for {itemCount} item{itemCount === 1 ? '' : 's'} — choose one or more
-            suppliers to request quotes from. Selecting several sends the same request to all of
-            them at once.
+            Build one or more groups — pick a subset of the items below, pick the supplier(s) to
+            send that subset to, then "Add Group" and repeat for whatever's left.
           </p>
-          {suppliers.length === 0 ? (
-            <p style={styles.muted}>No suppliers yet — add one first from the Suppliers list.</p>
-          ) : (
-            <ul style={styles.categoryList}>
-              {suppliers.map((s) => (
-                <li key={s.id}>
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={selectedSupplierIds.has(s.id)}
-                      onChange={() => toggleSupplier(s.id)}
-                    />{' '}
-                    {s.name}
-                    {s.email && <span style={styles.muted}> — {s.email}</span>}
-                  </label>
-                </li>
+
+          {groups.length > 0 && (
+            <div style={styles.groupsList}>
+              <h4 style={{ margin: '0 0 6px 0', fontSize: 14 }}>Groups so far</h4>
+              {groups.map((g) => (
+                <div key={g.id} style={styles.groupCard}>
+                  <div>
+                    <strong>{[...g.supplierIds].map(supplierName).join(', ')}</strong>
+                    <span style={styles.muted}> ← {[...g.productIds].map(itemName).join(', ')}</span>
+                  </div>
+                  <button style={styles.dangerLinkButton} onClick={() => removeGroup(g.id)}>Remove</button>
+                </div>
               ))}
-            </ul>
+            </div>
           )}
+
+          <div style={styles.builderCard}>
+            <h4 style={{ margin: '0 0 6px 0', fontSize: 14 }}>
+              {unassignedItems.length > 0
+                ? `Build a group — ${unassignedItems.length} item(s) still unassigned`
+                : 'All items assigned'}
+            </h4>
+
+            {unassignedItems.length === 0 ? (
+              <p style={styles.muted}>Every item has a group. Submit below, or remove a group to reassign.</p>
+            ) : (
+              <>
+                <p style={styles.mutedSmall}>Pick items for this group:</p>
+                <ul style={styles.plainList}>
+                  {unassignedItems.map((item) => (
+                    <li key={item.product_id}>
+                      <label>
+                        <input
+                          type="checkbox"
+                          checked={builderProductIds.has(item.product_id)}
+                          onChange={() => toggleBuilderProduct(item.product_id)}
+                        />{' '}
+                        {item.name}
+                      </label>
+                    </li>
+                  ))}
+                </ul>
+
+                <p style={styles.mutedSmall}>
+                  Pick supplier(s) for this group{' '}
+                  {builderProductIds.size > 0 && (
+                    <span>— linked suppliers for these items are listed first</span>
+                  )}
+                  :
+                </p>
+                <ul style={styles.plainList}>
+                  {suggestedSuppliers.map((s) => (
+                    <li key={s.id}>
+                      <label>
+                        <input
+                          type="checkbox"
+                          checked={builderSupplierIds.has(s.id)}
+                          onChange={() => toggleBuilderSupplier(s.id)}
+                        />{' '}
+                        {s.name}
+                        {s.linked && <span style={styles.linkedBadge}> linked</span>}
+                        {s.email && <span style={styles.muted}> — {s.email}</span>}
+                      </label>
+                    </li>
+                  ))}
+                </ul>
+
+                <button style={styles.secondaryButton} onClick={addGroup}>+ Add Group</button>
+              </>
+            )}
+          </div>
+
           <div style={styles.formActions}>
             <button style={styles.secondaryButton} onClick={() => setStep(1)}>← Back</button>
-            <button style={styles.primaryButton} onClick={submit} disabled={submitting}>
-              {submitting ? 'Creating…' : `Create RFQs (${itemCount} × ${selectedSupplierIds.size})`}
+            <button style={styles.primaryButton} onClick={submit} disabled={submitting || groups.length === 0}>
+              {submitting ? 'Creating…' : `Submit All RFQs (${groups.length} group${groups.length === 1 ? '' : 's'})`}
             </button>
             <button style={styles.secondaryButton} onClick={onCancel}>Cancel</button>
           </div>
@@ -283,6 +417,7 @@ const styles = {
   stepArrow: { color: '#ccc' },
   errorBanner: { background: '#fdecea', color: '#611a15', padding: 10, borderRadius: 6, marginBottom: 12 },
   muted: { color: '#888', fontSize: 13 },
+  mutedSmall: { color: '#888', fontSize: 12, marginTop: 10, marginBottom: 4 },
   modeToggle: { display: 'flex', gap: 4, marginBottom: 12 },
   modeButton: { background: 'white', border: '1px solid #ccc', padding: '6px 12px', borderRadius: 6, cursor: 'pointer', fontSize: 13, color: '#555' },
   modeButtonActive: { background: '#2563eb', border: '1px solid #2563eb', padding: '6px 12px', borderRadius: 6, cursor: 'pointer', fontSize: 13, color: 'white' },
@@ -294,8 +429,13 @@ const styles = {
   td: { padding: '6px' },
   missingPrice: { color: '#b45309', background: '#fff7ed', padding: '1px 6px', borderRadius: 4, fontSize: 11 },
   qtyInput: { width: 70, padding: 4, border: '1px solid #ccc', borderRadius: 4, fontSize: 13 },
-  categoryList: { listStyle: 'none', padding: 0, fontSize: 14, display: 'flex', flexDirection: 'column', gap: 6 },
+  plainList: { listStyle: 'none', padding: 0, fontSize: 14, display: 'flex', flexDirection: 'column', gap: 6, margin: 0 },
+  groupsList: { marginBottom: 16 },
+  groupCard: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#eff6ff', border: '1px solid #c7d7fe', borderRadius: 6, padding: '8px 10px', marginBottom: 6, fontSize: 13 },
+  builderCard: { border: '1px dashed #ccc', borderRadius: 6, padding: 12, background: 'white' },
+  linkedBadge: { background: '#d1fae5', color: '#065f46', fontSize: 11, padding: '1px 6px', borderRadius: 4, marginLeft: 4 },
   formActions: { display: 'flex', gap: 8, marginTop: 16 },
   primaryButton: { background: '#2563eb', color: 'white', border: 'none', padding: '8px 14px', borderRadius: 6, cursor: 'pointer', fontSize: 14 },
   secondaryButton: { background: 'white', color: '#333', border: '1px solid #ccc', padding: '8px 14px', borderRadius: 6, cursor: 'pointer', fontSize: 14 },
+  dangerLinkButton: { background: 'none', border: 'none', color: '#b91c1c', cursor: 'pointer', fontSize: 13, padding: 0 },
 }

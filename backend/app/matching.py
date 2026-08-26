@@ -108,3 +108,64 @@ def suggest_product_match(db: Session, description: str, spec, unit, weight_pres
             return None  # too ambiguous relative to the runner-up — stay silent
 
     return MatchSuggestion(product_id=top_product.id, product_name=top_product.name, score=round(top_score, 1))
+
+
+# --- Matching a multi-item supplier reply against a small, known candidate set ---
+#
+# This is a different (and safer) situation than suggest_product_match above:
+# when a supplier replies to an RFQ batch, we already know EXACTLY which
+# products we asked them about (the pending RFQs for that supplier) — so
+# instead of matching against the entire product catalog, matching only
+# needs to happen within that small, known candidate set. That narrower
+# pool means a much more lenient score threshold is still safe, since the
+# false-positive risk (matching to some unrelated product) is essentially
+# eliminated by construction.
+
+CANDIDATE_MATCH_MIN_SCORE = 75
+
+
+@dataclass
+class ExtractedItem:
+    index: int  # position in the original extracted list, for reporting
+    description: str
+    price: float
+    unit: str | None
+
+
+def match_items_to_candidates(extracted_items: list[dict], candidate_products: list[models.Product]):
+    """
+    Greedy one-to-one matching: scores every (product, extracted item) pair
+    by name similarity, then assigns the best-scoring pairs first, skipping
+    anything below the threshold or where either side is already spoken
+    for. Returns (matches, unmatched_product_ids, unmatched_item_indices).
+
+    matches: list of (product, extracted_item_dict, score)
+    """
+    pairs = []
+    for p in candidate_products:
+        for i, item in enumerate(extracted_items):
+            desc = item.get("description") or ""
+            if item.get("price") is None or not desc.strip():
+                continue
+            score = fuzz.WRatio(_norm(desc), _norm(p.name))
+            pairs.append((score, p, i, item))
+
+    pairs.sort(key=lambda x: x[0], reverse=True)
+
+    matched_product_ids = set()
+    matched_item_indices = set()
+    matches = []
+    for score, product, item_index, item in pairs:
+        if score < CANDIDATE_MATCH_MIN_SCORE:
+            break  # sorted descending — nothing after this is better
+        if product.id in matched_product_ids or item_index in matched_item_indices:
+            continue
+        matches.append((product, item, round(score, 1)))
+        matched_product_ids.add(product.id)
+        matched_item_indices.add(item_index)
+
+    unmatched_products = [p for p in candidate_products if p.id not in matched_product_ids]
+    unmatched_item_indices = [
+        i for i in range(len(extracted_items)) if i not in matched_item_indices
+    ]
+    return matches, unmatched_products, unmatched_item_indices

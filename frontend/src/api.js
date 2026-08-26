@@ -75,23 +75,29 @@ export const api = {
   updateSupplier: (id, supplier) =>
     request(`/suppliers/${id}`, { method: 'PUT', body: JSON.stringify(supplier) }),
   deleteSupplier: (id) => request(`/suppliers/${id}`, { method: 'DELETE' }),
+  getSuggestedSuppliers: (productIds) =>
+    request(`/suppliers/suggested?product_ids=${productIds.join(',')}`),
 
   listRfqs: (status) => request(`/rfqs${status ? `?status=${status}` : ''}`),
   createRfq: (rfq) => request('/rfqs', { method: 'POST', body: JSON.stringify(rfq) }),
   createRfqsBulk: (payload) => request('/rfqs/bulk', { method: 'POST', body: JSON.stringify(payload) }),
-  ingestQuoteText: (rfqId, rawText) => {
+  createRfqsBulkGrouped: (payload) =>
+    request('/rfqs/bulk-grouped', { method: 'POST', body: JSON.stringify(payload) }),
+  ingestQuoteForSupplierText: (supplierId, rawText) => {
     const formData = new URLSearchParams()
+    formData.append('supplier_id', supplierId)
     formData.append('raw_text', rawText)
-    return fetch(`${BASE}/rfqs/${rfqId}/ingest-quote`, { method: 'POST', body: formData })
+    return fetch(`${BASE}/rfqs/ingest-quote-for-supplier`, { method: 'POST', body: formData })
       .then(async (res) => {
         if (!res.ok) throw new Error(`API error ${res.status}: ${await res.text()}`)
         return res.json()
       })
   },
-  ingestQuoteFile: async (rfqId, file) => {
+  ingestQuoteFileForSupplier: async (supplierId, file) => {
     const formData = new FormData()
+    formData.append('supplier_id', supplierId)
     formData.append('file', file)
-    const res = await fetch(`${BASE}/rfqs/${rfqId}/ingest-quote-file`, { method: 'POST', body: formData })
+    const res = await fetch(`${BASE}/rfqs/ingest-quote-file-for-supplier`, { method: 'POST', body: formData })
     if (!res.ok) throw new Error(`API error ${res.status}: ${await res.text()}`)
     return res.json()
   },
