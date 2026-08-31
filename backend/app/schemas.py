@@ -41,6 +41,11 @@ class PriceEntryCreate(BaseModel):
     source: str = "manual"
 
 
+class PriceEntryUpdate(BaseModel):
+    cost_price: Decimal | None = None
+    selling_price: Decimal | None = None
+
+
 class EnquiryIngestRequest(BaseModel):
     raw_text: str
     customer_name: str

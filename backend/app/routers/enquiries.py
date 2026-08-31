@@ -10,31 +10,25 @@ from app.matching import is_exact_match
 router = APIRouter(prefix="/api/enquiries", tags=["enquiries"])
 
 
-def _ingest_from_text(customer_name: str, site_name: str, raw_text: str, db: Session) -> models.Enquiry:
+def _ingest_from_text(
+    customer_name: str | None, site_name: str | None, raw_text: str, db: Session,
+    source: str = "manual",
+) -> models.Enquiry:
     """
     Shared core of steps 1-4 of the v1 flow, regardless of how the raw text
-    was obtained (pasted directly, or converted from an Excel/image upload).
-    One extraction pipeline serves every input format — see document_readers.py
-    for how each format gets turned into text before reaching this function.
+    was obtained (pasted directly, converted from an Excel/image upload, or
+    pulled from a connected inbox). One extraction pipeline serves every
+    input format — see document_readers.py for how each format gets turned
+    into text before reaching this function.
+
+    customer_name/site_name are optional: manual submission already knows
+    them (typed by the Purchaser), but an inbox-sourced enquiry doesn't —
+    in that case they're left None here and filled in from the same
+    extraction call's customer_name/site_name fields instead. If extraction
+    can't tell either, the enquiry is still created (as "Unknown Customer"/
+    "Unknown Site") rather than failing outright — every field is editable
+    in the review screen anyway, so a human can fix it up right there.
     """
-    # Find or create customer/site — matches the real-world pattern from the
-    # sample enquiries, where the same site recurs across multiple enquiries.
-    customer = db.query(models.Customer).filter(
-        models.Customer.name == customer_name
-    ).first()
-    if not customer:
-        customer = models.Customer(name=customer_name)
-        db.add(customer)
-        db.flush()
-
-    site = db.query(models.Site).filter(
-        models.Site.name == site_name, models.Site.customer_id == customer.id
-    ).first()
-    if not site:
-        site = models.Site(name=site_name, customer_id=customer.id)
-        db.add(site)
-        db.flush()
-
     try:
         extraction_service = get_extraction_service()
         result = extraction_service.extract(raw_text, ENQUIRY_SCHEMA)
@@ -44,19 +38,47 @@ def _ingest_from_text(customer_name: str, site_name: str, raw_text: str, db: Ses
         # undiagnosable 500 — whichever provider is actually configured.
         raise HTTPException(500, f"Extraction failed: {e}")
 
+    resolved_customer_name = customer_name or result.data.get("customer_name") or "Unknown Customer"
+    resolved_site_name = site_name or result.data.get("site_name") or "Unknown Site"
+
+    # Find or create customer/site — matches the real-world pattern from the
+    # sample enquiries, where the same site recurs across multiple enquiries.
+    customer = db.query(models.Customer).filter(
+        models.Customer.name == resolved_customer_name
+    ).first()
+    if not customer:
+        customer = models.Customer(name=resolved_customer_name)
+        db.add(customer)
+        db.flush()
+
+    site = db.query(models.Site).filter(
+        models.Site.name == resolved_site_name, models.Site.customer_id == customer.id
+    ).first()
+    if not site:
+        site = models.Site(name=resolved_site_name, customer_id=customer.id)
+        db.add(site)
+        db.flush()
+
     enquiry = models.Enquiry(
         site_id=site.id,
         raw_source=raw_text,
         status=models.EnquiryStatus.new,
+        source=source,
         extraction_confidence=result.confidence,
     )
     db.add(enquiry)
     db.flush()
 
     for item_data in result.data.get("items", []):
-        description = item_data.get("description", "unknown")
+        # Use `or` (not just .get's default) everywhere here — the
+        # extraction model sometimes returns a field explicitly as null
+        # rather than omitting it, and .get()'s default only kicks in when
+        # the key is missing entirely, not when it's present-but-empty.
+        # This exact gap once let a single item with a null unit crash an
+        # entire 14-item batch instead of just flagging that one item.
+        description = item_data.get("description") or "Unknown item"
         spec = item_data.get("spec")
-        unit = item_data.get("unit", "unit")
+        unit = item_data.get("unit") or "unit"
 
         # Auto-link ONLY on a true exact match across name AND spec AND
         # unit (see matching.is_exact_match) — matching on name alone used

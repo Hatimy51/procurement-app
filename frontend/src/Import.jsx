@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { api } from './api'
+import PageHeader from './PageHeader'
 
 const TARGET_FIELDS = [
   { key: 'name', label: 'Product Name', required: true },
@@ -73,12 +74,11 @@ export default function Import() {
 
   return (
     <div>
-      <h1 style={styles.title}>Import Products & Prices</h1>
-      <p style={styles.muted}>
-        For bringing in an existing product/price list — from an ERP export, Excel, or CSV —
-        instead of starting empty. Matches against products by name, so re-importing an
-        updated file won't create duplicates, it adds fresh price history instead.
-      </p>
+      <PageHeader
+        eyebrow="Onboarding"
+        title="Import Products & Prices"
+        description="Bring in an existing product/price list — from an ERP export, Excel, or CSV — instead of starting empty. Matches by name, so re-importing an updated file adds fresh price history instead of creating duplicates."
+      />
 
       {error && <div style={styles.errorBanner}>{error}</div>}
 
@@ -184,21 +184,21 @@ export default function Import() {
 }
 
 const styles = {
-  title: { fontSize: 22, margin: '0 0 4px 0' },
-  muted: { color: '#888', fontSize: 13 },
-  errorBanner: { background: '#fdecea', color: '#611a15', padding: 10, borderRadius: 6, marginBottom: 12 },
-  uploadBox: { border: '2px dashed #ccc', borderRadius: 8, padding: 30, textAlign: 'center', marginTop: 16 },
-  mappingTable: { width: '100%', borderCollapse: 'collapse', fontSize: 14, marginTop: 12, maxWidth: 500 },
-  previewTable: { width: '100%', borderCollapse: 'collapse', fontSize: 13 },
-  th: { textAlign: 'left', borderBottom: '2px solid #ddd', padding: '8px 6px', color: '#555' },
-  tr: { borderBottom: '1px solid #eee' },
-  td: { padding: '8px 6px' },
-  select: { padding: 6, border: '1px solid #ccc', borderRadius: 6, fontSize: 13, width: '100%' },
-  requiredMark: { color: '#b45309' },
+  title: { fontSize: 20, margin: '0 0 4px 0', color: 'var(--color-ink)' },
+  muted: { color: 'var(--color-muted)', fontSize: 13 },
+  errorBanner: { background: 'var(--color-danger-soft)', color: 'var(--color-danger)', padding: '10px 14px', borderRadius: 3, marginBottom: 12, fontSize: 13, borderLeft: '3px solid var(--color-danger)' },
+  uploadBox: { border: '2px dashed var(--color-line-strong)', borderRadius: 5, padding: 32, textAlign: 'center', marginTop: 16, background: 'var(--color-surface)' },
+  mappingTable: { width: '100%', borderCollapse: 'collapse', fontSize: 13, marginTop: 12, maxWidth: 500 },
+  previewTable: { width: '100%', borderCollapse: 'collapse', fontSize: 12.5 },
+  th: { textAlign: 'left', borderBottom: '1px solid var(--color-line-strong)', padding: '10px 10px', color: 'var(--color-muted)', fontFamily: 'var(--font-mono)', fontSize: 11, letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: 500, background: 'var(--color-paper)' },
+  tr: { borderBottom: '1px solid var(--color-line)' },
+  td: { padding: '10px 10px' },
+  select: { padding: 7, fontSize: 12.5, width: '100%' },
+  requiredMark: { color: 'var(--color-warning)' },
   formActions: { display: 'flex', gap: 8, marginTop: 16 },
-  primaryButton: { background: '#2563eb', color: 'white', border: 'none', padding: '8px 14px', borderRadius: 6, cursor: 'pointer', fontSize: 14 },
-  secondaryButton: { background: 'white', color: '#333', border: '1px solid #ccc', padding: '8px 14px', borderRadius: 6, cursor: 'pointer', fontSize: 14 },
-  resultCard: { border: '1px solid #ddd', borderRadius: 8, padding: 16, marginBottom: 16, background: '#f0fdf4' },
-  resultList: { paddingLeft: 20, fontSize: 14 },
-  warningText: { color: '#b45309' },
+  primaryButton: { background: 'var(--color-rust)', color: 'white', border: 'none', padding: '8px 14px', borderRadius: 3, cursor: 'pointer', fontSize: 13, fontFamily: 'var(--font-sans)', fontWeight: 500 },
+  secondaryButton: { background: 'var(--color-surface)', color: 'var(--color-accent)', border: '1px solid var(--color-accent)', padding: '8px 14px', borderRadius: 3, cursor: 'pointer', fontSize: 13, fontFamily: 'var(--font-sans)' },
+  resultCard: { border: '1px solid var(--color-success)', borderRadius: 5, padding: 18, marginBottom: 16, background: 'var(--color-success-soft)' },
+  resultList: { paddingLeft: 20, fontSize: 13 },
+  warningText: { color: 'var(--color-warning)' },
 }

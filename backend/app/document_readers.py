@@ -44,6 +44,21 @@ def read_image_as_text(file_bytes: bytes) -> str:
     return pytesseract.image_to_string(image)
 
 
+def read_pdf_as_text(file_bytes: bytes) -> str:
+    """
+    Extracts text from a PDF's actual text layer (works for quotes generated
+    directly as PDFs — the common case for a supplier's formal quotation).
+    Does NOT do OCR — a scanned/photographed PDF with no real text layer
+    will come back empty, and callers should treat an empty result as
+    "this PDF has no readable text" rather than "this PDF has no items."
+    """
+    from pypdf import PdfReader
+
+    reader = PdfReader(io.BytesIO(file_bytes))
+    pages_text = [page.extract_text() or "" for page in reader.pages]
+    return "\n".join(pages_text).strip()
+
+
 def parse_tabular_file(filename: str, file_bytes: bytes) -> tuple[list[str], list[list[str]]]:
     """
     Reads an Excel/CSV file as structured rows (headers + data rows), for
@@ -96,8 +111,18 @@ def extract_text_from_upload(filename: str, file_bytes: bytes) -> str:
         return read_csv_as_text(file_bytes)
     elif lower.endswith((".png", ".jpg", ".jpeg", ".webp", ".gif")):
         return read_image_as_text(file_bytes)
+    elif lower.endswith(".pdf"):
+        text = read_pdf_as_text(file_bytes)
+        if not text:
+            raise ValueError(
+                f"'{filename}' has no readable text — it's likely a scanned/photographed "
+                "PDF rather than one generated digitally. OCR for scanned PDFs isn't "
+                "supported yet; try re-saving it as an image (screenshot) instead, which "
+                "does go through OCR."
+            )
+        return text
     else:
         raise ValueError(
             f"Unsupported file type for '{filename}'. "
-            "Supported: .xlsx, .xls, .csv, .png, .jpg, .jpeg, .webp"
+            "Supported: .xlsx, .xls, .csv, .pdf, .png, .jpg, .jpeg, .webp"
         )

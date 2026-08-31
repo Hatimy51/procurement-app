@@ -125,6 +125,22 @@ class GroupedRFQCreate(BaseModel):
     groups: list[RFQGroup]
 
 
+@router.delete("/{rfq_id}")
+def delete_rfq(rfq_id: str, db: Session = Depends(get_db)):
+    """Removes a single pending (or resolved) RFQ — e.g. one that's no
+    longer needed, a duplicate, or one created by mistake. Any
+    SupplierQuote tied to it goes with it; the product's price history
+    and the product itself are untouched."""
+    rfq = db.query(models.RFQ).filter(models.RFQ.id == rfq_id).first()
+    if not rfq:
+        raise HTTPException(404, "RFQ not found")
+
+    db.query(models.SupplierQuote).filter(models.SupplierQuote.rfq_id == rfq_id).delete()
+    db.delete(rfq)
+    db.commit()
+    return {"deleted": True, "id": rfq_id}
+
+
 @router.post("/bulk-grouped")
 def create_rfqs_bulk_grouped(payload: GroupedRFQCreate, db: Session = Depends(get_db)):
     """
@@ -209,6 +225,12 @@ def _ingest_quote_for_supplier(supplier_id: str, raw_text: str, db: Session):
     and leaving the rest pending. This is the realistic shape of how a
     supplier actually replies to a multi-item RFQ: one email, several
     items, not one email per item.
+
+    Creates exactly ONE SupplierQuote record for this submission (visible
+    on the Quote History screen), with all its resulting PriceEntry rows
+    linked back to it — a supplier only ever states one price, which is
+    always treated as our cost price; the selling price is always left
+    for the Purchaser to fill in afterward, never inferred from the reply.
     """
     supplier = db.query(models.Supplier).filter(models.Supplier.id == supplier_id).first()
     if not supplier:
@@ -241,30 +263,43 @@ def _ingest_quote_for_supplier(supplier_id: str, raw_text: str, db: Session):
         extracted_items, candidate_products
     )
 
+    quote = models.SupplierQuote(
+        supplier_id=supplier_id,
+        raw_source=raw_text,
+        extraction_confidence=result.confidence,
+    )
+    db.add(quote)
+    db.flush()  # get quote.id before attaching price entries
+
     rfqs_by_product_id = {rfq.product_id: rfq for rfq in pending_rfqs}
     priced = []
     for product, item, score in matches:
         rfq = rfqs_by_product_id[product.id]
-        price = item["price"]
+        cost_price = item["cost_price"]
 
-        db.add(models.SupplierQuote(
-            rfq_id=rfq.id,
-            raw_source=raw_text,
-            extracted_price=price,
-            extraction_confidence=result.confidence,
-        ))
-        db.add(models.PriceEntry(
+        price_entry = models.PriceEntry(
             product_id=product.id,
-            cost_price=price,
-            selling_price=None,
+            cost_price=cost_price,
+            selling_price=None,  # always manual — see docstring
             source=models.PriceSource.supplier_quote,
-        ))
+            supplier_quote_id=quote.id,
+        )
+        db.add(price_entry)
         rfq.status = models.RFQStatus.quote_received
-        priced.append({"product_name": product.name, "price": price, "match_score": score})
+        db.flush()
+        priced.append({
+            "product_id": product.id,
+            "product_name": product.name,
+            "price_entry_id": price_entry.id,
+            "cost_price": cost_price,
+            "selling_price": None,
+            "match_score": score,
+        })
 
     db.commit()
 
     return {
+        "quote_id": quote.id,
         "priced": priced,
         "still_pending": [p.name for p in unmatched_products],
         "extra_items_in_reply_not_matched": [

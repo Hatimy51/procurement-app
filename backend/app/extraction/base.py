@@ -57,6 +57,7 @@ class ExtractionProvider(ABC):
 # means adding a new schema here, not a new extraction engine.
 
 ENQUIRY_SCHEMA = {
+    "customer_name": "string or null — the customer/company name this enquiry is from, if it can be told from the sender's signature, company name, or greeting",
     "site_name": "string — the project/site name this enquiry is for, if mentioned",
     "items": [
         {
@@ -74,7 +75,7 @@ SUPPLIER_QUOTE_SCHEMA = {
     "items": [
         {
             "description": "string — product/material description",
-            "price": "number",
+            "cost_price": "number — the price the supplier is quoting us. A supplier quote only ever states ONE price — always treat it as our cost price, never a selling price.",
             "unit": "string",
         }
     ],

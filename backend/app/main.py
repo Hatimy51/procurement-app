@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import Base, engine
-from app.routers import products, prices, enquiries, enquiry_review, diagnostics, imports, suppliers, rfqs
+from app.routers import products, prices, enquiries, enquiry_review, diagnostics, imports, suppliers, rfqs, supplier_quotes, quotes, purchase_orders, delivery_challans, invoices, inbox
 
 app = FastAPI(title="Procurement Automation API", version="0.1.0")
 
@@ -23,6 +23,12 @@ app.include_router(diagnostics.router)
 app.include_router(imports.router)
 app.include_router(suppliers.router)
 app.include_router(rfqs.router)
+app.include_router(supplier_quotes.router)
+app.include_router(quotes.router)
+app.include_router(purchase_orders.router)
+app.include_router(delivery_challans.router)
+app.include_router(invoices.router)
+app.include_router(inbox.router)
 
 
 @app.on_event("startup")

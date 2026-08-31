@@ -63,6 +63,15 @@ def delete_product(product_id: str, db: Session = Depends(get_db)):
     were linked to it get unlinked (not deleted) rather than left pointing
     at something that no longer exists — they'll show as "not linked" again,
     same as before they were ever matched.
+
+    Also cleans up product_supplier_links and rfqs for this product — both
+    have a required (non-nullable) foreign key to products, so leaving them
+    in place made every delete fail with a foreign-key violation for any
+    product that had ever been linked to a supplier or had an RFQ sent for
+    it. Supplier links are just a preference and are safe to drop outright.
+    RFQs are deleted too, same as when a Supplier is deleted (see
+    suppliers.py) — an RFQ record makes no sense once the product it was
+    asking about no longer exists.
     """
     product = db.query(models.Product).filter(models.Product.id == product_id).first()
     if not product:
@@ -73,6 +82,12 @@ def delete_product(product_id: str, db: Session = Depends(get_db)):
     ).update({"product_id": None})
     db.query(models.PriceEntry).filter(
         models.PriceEntry.product_id == product_id
+    ).delete()
+    db.query(models.ProductSupplierLink).filter(
+        models.ProductSupplierLink.product_id == product_id
+    ).delete()
+    db.query(models.RFQ).filter(
+        models.RFQ.product_id == product_id
     ).delete()
 
     db.delete(product)

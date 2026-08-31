@@ -145,7 +145,7 @@ def match_items_to_candidates(extracted_items: list[dict], candidate_products: l
     for p in candidate_products:
         for i, item in enumerate(extracted_items):
             desc = item.get("description") or ""
-            if item.get("price") is None or not desc.strip():
+            if item.get("cost_price") is None or not desc.strip():
                 continue
             score = fuzz.WRatio(_norm(desc), _norm(p.name))
             pairs.append((score, p, i, item))

@@ -1,0 +1,68 @@
+"""Schemas for Purchase Orders — same pattern as schemas_quotes.py."""
+from datetime import datetime
+from decimal import Decimal
+from pydantic import BaseModel
+
+
+class POLineItemIn(BaseModel):
+    """One line item as submitted when creating/editing a PO. product_id is
+    optional — omit it for a manual/custom line not in the product master."""
+    product_id: str | None = None
+    description: str
+    spec: str | None = None
+    quantity: Decimal
+    unit: str
+    gst_percent: Decimal | None = None
+    unit_price: Decimal | None = None
+
+
+class PurchaseOrderCreate(BaseModel):
+    supplier_id: str
+    customer_quote_id: str | None = None
+    notes: str | None = None
+    items: list[POLineItemIn]
+
+
+class PurchaseOrderDraftUpdate(BaseModel):
+    """'Save Draft' — notes and the full items list are replaced together,
+    same one-call pattern as Quote's Save Draft."""
+    notes: str | None = None
+    items: list[POLineItemIn]
+
+
+class POLineItemOut(BaseModel):
+    id: str
+    description: str
+    spec: str | None
+    quantity: Decimal
+    unit: str
+    gst_percent: Decimal | None
+    unit_price: Decimal | None
+
+
+class PurchaseOrderListItemOut(BaseModel):
+    id: str
+    po_number: str
+    status: str
+    supplier_name: str
+    item_count: int
+    grand_total: Decimal
+    created_at: datetime
+
+
+class PurchaseOrderDetailOut(BaseModel):
+    id: str
+    po_number: str
+    status: str
+    supplier_name: str
+    supplier_email: str | None
+    supplier_phone: str | None
+    customer_quote_number: str | None
+    notes: str | None
+    created_at: datetime
+    sent_at: datetime | None
+    items: list[POLineItemOut]
+    subtotal: Decimal
+    total_gst: Decimal
+    grand_total: Decimal
+    items_price_missing: int

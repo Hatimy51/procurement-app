@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { api } from './api'
+import PageHeader from './PageHeader'
 
 const EMPTY_FORM = { name: '', category: '', spec: '', unit: '', cost_price: '', selling_price: '', gst_percent: '' }
 const EMPTY_BULK_PRICE_FORM = { cost_price: '', selling_price: '' }
@@ -199,12 +200,16 @@ export default function ProductPriceList() {
 
   return (
     <div style={styles.page}>
-      <header style={styles.header}>
-        <h1 style={styles.title}>Product &amp; Price List</h1>
-        <button style={styles.primaryButton} onClick={openCreateForm}>
-          + Add Product
-        </button>
-      </header>
+      <PageHeader
+        eyebrow="Master Sheet"
+        title="Product & Price List"
+        description="Every product your business quotes against, with its current price and history."
+        action={
+          <button style={styles.primaryButton} onClick={openCreateForm}>
+            + Add Product
+          </button>
+        }
+      />
 
       <input
         style={styles.search}
@@ -401,7 +406,7 @@ export default function ProductPriceList() {
                     <td style={styles.td}>{product.spec || '—'}</td>
                     <td style={styles.td}>{product.unit || '—'}</td>
                     <td style={styles.td}>{product.gst_percent != null ? `${product.gst_percent}%` : '—'}</td>
-                    <td style={styles.td}>
+                    <td style={{ ...styles.td, fontFamily: 'var(--font-mono)' }}>
                       {price ? (
                         <span>
                           ₹{price.selling_price ?? '—'}{' '}
@@ -456,32 +461,32 @@ export default function ProductPriceList() {
 }
 
 const styles = {
-  page: { fontFamily: 'system-ui, sans-serif', maxWidth: 1000, margin: '0 auto', padding: 24 },
+  page: { fontFamily: 'var(--font-sans)', maxWidth: 1000, margin: '0 auto' },
   header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
-  title: { fontSize: 22, margin: 0 },
-  search: { width: '100%', padding: 10, fontSize: 14, marginBottom: 16, boxSizing: 'border-box', border: '1px solid #ccc', borderRadius: 6 },
-  errorBanner: { background: '#fdecea', color: '#611a15', padding: 10, borderRadius: 6, marginBottom: 12 },
-  infoBanner: { background: '#eff6ff', color: '#1e3a8a', padding: 10, borderRadius: 6, marginBottom: 12 },
-  table: { width: '100%', borderCollapse: 'collapse', fontSize: 14 },
-  th: { textAlign: 'left', borderBottom: '2px solid #ddd', padding: '8px 6px', color: '#555' },
-  tr: { borderBottom: '1px solid #eee' },
-  td: { padding: '8px 6px' },
-  subRow: { padding: '8px 6px', background: '#fafafa' },
-  muted: { color: '#888', fontSize: 12 },
-  missingPrice: { color: '#b45309', background: '#fff7ed', padding: '2px 8px', borderRadius: 4, fontSize: 12 },
-  emptyState: { color: '#666' },
-  formCard: { border: '1px solid #ddd', borderRadius: 8, padding: 16, marginBottom: 16, background: '#f9fafb' },
+  title: { fontSize: 20, margin: 0, color: 'var(--color-ink)' },
+  search: { width: '100%', padding: 10, fontSize: 13, marginBottom: 16, boxSizing: 'border-box' },
+  errorBanner: { background: 'var(--color-danger-soft)', color: 'var(--color-danger)', padding: '10px 14px', borderRadius: 3, marginBottom: 12, fontSize: 13, borderLeft: '3px solid var(--color-danger)' },
+  infoBanner: { background: 'var(--color-accent-soft)', color: 'var(--color-accent)', padding: '10px 14px', borderRadius: 3, marginBottom: 12, fontSize: 13, borderLeft: '3px solid var(--color-accent)' },
+  table: { width: '100%', borderCollapse: 'collapse', fontSize: 13 },
+  th: { textAlign: 'left', borderBottom: '1px solid var(--color-line-strong)', padding: '10px 10px', color: 'var(--color-muted)', fontFamily: 'var(--font-mono)', fontSize: 11, letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: 500, background: 'var(--color-paper)' },
+  tr: { borderBottom: '1px solid var(--color-line)' },
+  td: { padding: '10px 10px' },
+  subRow: { padding: '10px 10px', background: 'var(--color-paper)' },
+  muted: { color: 'var(--color-muted)', fontSize: 12 },
+  missingPrice: { color: 'var(--color-warning)', background: 'var(--color-warning-soft)', padding: '3px 8px', borderRadius: 2, fontSize: 10.5, fontFamily: 'var(--font-mono)', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase' },
+  emptyState: { color: 'var(--color-muted)' },
+  formCard: { border: '1px solid var(--color-line)', borderRadius: 5, padding: 18, marginBottom: 16, background: 'var(--color-surface)' },
   formGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 },
   field: { display: 'flex', flexDirection: 'column', gap: 4 },
-  label: { fontSize: 12, color: '#555', fontWeight: 600 },
+  label: { fontSize: 11, color: 'var(--color-muted)', fontWeight: 500, letterSpacing: '0.04em', textTransform: 'uppercase' },
   formActions: { display: 'flex', gap: 8 },
-  input: { padding: 8, border: '1px solid #ccc', borderRadius: 6, fontSize: 14, boxSizing: 'border-box' },
-  primaryButton: { background: '#2563eb', color: 'white', border: 'none', padding: '8px 14px', borderRadius: 6, cursor: 'pointer', fontSize: 14 },
-  secondaryButton: { background: 'white', color: '#333', border: '1px solid #ccc', padding: '8px 14px', borderRadius: 6, cursor: 'pointer', fontSize: 14 },
-  secondaryButtonSmall: { background: 'white', color: '#333', border: '1px solid #ccc', padding: '5px 10px', borderRadius: 6, cursor: 'pointer', fontSize: 13 },
-  dangerButtonSmall: { background: '#b91c1c', color: 'white', border: 'none', padding: '5px 10px', borderRadius: 6, cursor: 'pointer', fontSize: 13 },
-  linkButton: { background: 'none', border: 'none', color: '#2563eb', cursor: 'pointer', fontSize: 13, marginRight: 10, padding: 0 },
-  dangerLinkButton: { background: 'none', border: 'none', color: '#b91c1c', cursor: 'pointer', fontSize: 13, padding: 0 },
-  historyList: { margin: 0, paddingLeft: 20 },
-  bulkBar: { display: 'flex', alignItems: 'center', gap: 10, background: '#f0f4ff', border: '1px solid #c7d7fe', borderRadius: 6, padding: '8px 12px', marginBottom: 12, fontSize: 13 },
+  input: { padding: 8, fontSize: 13, boxSizing: 'border-box', width: '100%' },
+  primaryButton: { background: 'var(--color-rust)', color: 'white', border: 'none', padding: '8px 14px', borderRadius: 3, cursor: 'pointer', fontSize: 13, fontFamily: 'var(--font-sans)', fontWeight: 500 },
+  secondaryButton: { background: 'var(--color-surface)', color: 'var(--color-accent)', border: '1px solid var(--color-accent)', padding: '8px 14px', borderRadius: 3, cursor: 'pointer', fontSize: 13, fontFamily: 'var(--font-sans)' },
+  secondaryButtonSmall: { background: 'var(--color-surface)', color: 'var(--color-accent)', border: '1px solid var(--color-accent)', padding: '5px 10px', borderRadius: 3, cursor: 'pointer', fontSize: 12, fontFamily: 'var(--font-sans)' },
+  dangerButtonSmall: { background: 'var(--color-surface)', color: 'var(--color-danger)', border: '1px solid var(--color-danger)', padding: '5px 10px', borderRadius: 3, cursor: 'pointer', fontSize: 12, fontFamily: 'var(--font-sans)' },
+  linkButton: { background: 'none', border: 'none', color: 'var(--color-accent)', cursor: 'pointer', fontSize: 12.5, marginRight: 12, padding: 0, fontFamily: 'var(--font-sans)' },
+  dangerLinkButton: { background: 'none', border: 'none', color: 'var(--color-danger)', cursor: 'pointer', fontSize: 12.5, padding: 0, fontFamily: 'var(--font-sans)' },
+  historyList: { margin: 0, paddingLeft: 20, fontFamily: 'var(--font-mono)', fontSize: 12 },
+  bulkBar: { display: 'flex', alignItems: 'center', gap: 10, background: 'var(--color-accent-soft)', border: '1px solid var(--color-accent)', borderRadius: 3, padding: '8px 12px', marginBottom: 12, fontSize: 13 },
 }

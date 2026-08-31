@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { api } from './api'
 import { getConvertibleUnits, convertQuantity } from './units'
+import PageHeader from './PageHeader'
 
 const EMPTY_INGEST_FORM = { customer_name: '', site_name: '', raw_text: '' }
 
@@ -528,12 +529,16 @@ export default function EnquiryReview() {
 
   return (
     <div>
-      <div style={styles.header}>
-        <h1 style={styles.title}>Enquiries</h1>
-        <button style={styles.primaryButton} onClick={() => setIngestOpen(!ingestOpen)}>
-          + New Enquiry
-        </button>
-      </div>
+      <PageHeader
+        eyebrow="Intake"
+        title="Enquiries"
+        description="Turn an incoming customer enquiry — pasted text, an Excel file, or a screenshot — into structured, priceable line items."
+        action={
+          <button style={styles.primaryButton} onClick={() => setIngestOpen(!ingestOpen)}>
+            + New Enquiry
+          </button>
+        }
+      />
 
       {error && <div style={styles.errorBanner}>{error}</div>}
 
@@ -717,35 +722,35 @@ export default function EnquiryReview() {
 
 const styles = {
   header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
-  title: { fontSize: 22, margin: 0 },
-  errorBanner: { background: '#fdecea', color: '#611a15', padding: 10, borderRadius: 6, marginBottom: 12 },
-  infoBanner: { background: '#eff6ff', color: '#1e3a8a', padding: 10, borderRadius: 6, marginBottom: 12 },
+  title: { fontSize: 20, margin: 0, color: 'var(--color-ink)' },
+  errorBanner: { background: 'var(--color-danger-soft)', color: 'var(--color-danger)', padding: '10px 14px', borderRadius: 3, marginBottom: 12, fontSize: 13, borderLeft: '3px solid var(--color-danger)' },
+  infoBanner: { background: 'var(--color-accent-soft)', color: 'var(--color-accent)', padding: '10px 14px', borderRadius: 3, marginBottom: 12, fontSize: 13, borderLeft: '3px solid var(--color-accent)' },
   detailHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
-  dangerLinkButton: { background: 'none', border: 'none', color: '#b91c1c', cursor: 'pointer', fontSize: 13, padding: 0, marginLeft: 10 },
+  dangerLinkButton: { background: 'none', border: 'none', color: 'var(--color-danger)', cursor: 'pointer', fontSize: 12.5, padding: 0, marginLeft: 10, fontFamily: 'var(--font-sans)' },
   sectionHeaderRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 16 },
-  suggestionRow: { marginTop: 4, fontSize: 12, color: '#1e3a8a', background: '#eff6ff', padding: '4px 6px', borderRadius: 4 },
-  muted: { color: '#888', fontSize: 13 },
-  table: { width: '100%', borderCollapse: 'collapse', fontSize: 14 },
-  th: { textAlign: 'left', borderBottom: '2px solid #ddd', padding: '8px 6px', color: '#555' },
-  tr: { borderBottom: '1px solid #eee' },
-  td: { padding: '8px 6px' },
-  missingPrice: { color: '#b45309', background: '#fff7ed', padding: '2px 8px', borderRadius: 4, fontSize: 12 },
-  formCard: { border: '1px solid #ddd', borderRadius: 8, padding: 16, marginBottom: 16, background: '#f9fafb' },
+  suggestionRow: { marginTop: 4, fontSize: 12, color: 'var(--color-accent)', background: 'var(--color-accent-soft)', padding: '4px 8px', borderRadius: 3 },
+  muted: { color: 'var(--color-muted)', fontSize: 13 },
+  table: { width: '100%', borderCollapse: 'collapse', fontSize: 13 },
+  th: { textAlign: 'left', borderBottom: '1px solid var(--color-line-strong)', padding: '10px 10px', color: 'var(--color-muted)', fontFamily: 'var(--font-mono)', fontSize: 11, letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: 500, background: 'var(--color-paper)' },
+  tr: { borderBottom: '1px solid var(--color-line)' },
+  td: { padding: '10px 10px' },
+  missingPrice: { color: 'var(--color-warning)', background: 'var(--color-warning-soft)', padding: '3px 8px', borderRadius: 2, fontSize: 10.5, fontFamily: 'var(--font-mono)', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase' },
+  formCard: { border: '1px solid var(--color-line)', borderRadius: 5, padding: 18, marginBottom: 16, background: 'var(--color-surface)' },
   modeToggle: { display: 'flex', gap: 4, marginBottom: 12 },
-  modeButton: { background: 'white', border: '1px solid #ccc', padding: '6px 12px', borderRadius: 6, cursor: 'pointer', fontSize: 13, color: '#555' },
-  modeButtonActive: { background: '#2563eb', border: '1px solid #2563eb', padding: '6px 12px', borderRadius: 6, cursor: 'pointer', fontSize: 13, color: 'white' },
+  modeButton: { background: 'var(--color-surface)', border: '1px solid var(--color-line-strong)', padding: '6px 12px', borderRadius: 3, cursor: 'pointer', fontSize: 12.5, color: 'var(--color-ink-soft)', fontFamily: 'var(--font-sans)' },
+  modeButtonActive: { background: 'var(--color-accent)', border: '1px solid var(--color-accent)', padding: '6px 12px', borderRadius: 3, cursor: 'pointer', fontSize: 12.5, color: 'white', fontFamily: 'var(--font-sans)' },
   fileInput: { display: 'block', marginBottom: 4 },
   formGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 },
   formActions: { display: 'flex', gap: 8, marginTop: 8 },
-  input: { padding: 8, border: '1px solid #ccc', borderRadius: 6, fontSize: 14 },
-  textarea: { width: '100%', padding: 8, border: '1px solid #ccc', borderRadius: 6, fontSize: 14, boxSizing: 'border-box', fontFamily: 'inherit' },
-  cellInput: { padding: 4, border: '1px solid #ccc', borderRadius: 4, fontSize: 13, width: '100%', boxSizing: 'border-box' },
-  convertSelect: { padding: 2, border: '1px solid #ccc', borderRadius: 4, fontSize: 11, width: '100%', marginTop: 2, color: '#555' },
-  primaryButton: { background: '#2563eb', color: 'white', border: 'none', padding: '8px 14px', borderRadius: 6, cursor: 'pointer', fontSize: 14 },
-  secondaryButton: { background: 'white', color: '#333', border: '1px solid #ccc', padding: '8px 14px', borderRadius: 6, cursor: 'pointer', fontSize: 14 },
-  linkButton: { background: 'none', border: 'none', color: '#2563eb', cursor: 'pointer', fontSize: 13, padding: 0 },
-  bulkBar: { display: 'flex', alignItems: 'center', gap: 10, background: '#f0f4ff', border: '1px solid #c7d7fe', borderRadius: 6, padding: '8px 12px', marginBottom: 12, fontSize: 13 },
-  secondaryButtonSmall: { background: 'white', color: '#333', border: '1px solid #ccc', padding: '5px 10px', borderRadius: 6, cursor: 'pointer', fontSize: 13 },
-  dangerButtonSmall: { background: '#b91c1c', color: 'white', border: 'none', padding: '5px 10px', borderRadius: 6, cursor: 'pointer', fontSize: 13 },
-  rawText: { background: '#f5f5f5', padding: 10, borderRadius: 6, whiteSpace: 'pre-wrap', fontSize: 13 },
+  input: { padding: 8, fontSize: 13 },
+  textarea: { width: '100%', padding: 8, fontSize: 13, boxSizing: 'border-box', fontFamily: 'inherit' },
+  cellInput: { padding: 5, fontSize: 12.5, width: '100%', boxSizing: 'border-box' },
+  convertSelect: { padding: 3, fontSize: 11, width: '100%', marginTop: 2, color: 'var(--color-ink-soft)' },
+  primaryButton: { background: 'var(--color-rust)', color: 'white', border: 'none', padding: '8px 14px', borderRadius: 3, cursor: 'pointer', fontSize: 13, fontFamily: 'var(--font-sans)', fontWeight: 500 },
+  secondaryButton: { background: 'var(--color-surface)', color: 'var(--color-accent)', border: '1px solid var(--color-accent)', padding: '8px 14px', borderRadius: 3, cursor: 'pointer', fontSize: 13, fontFamily: 'var(--font-sans)' },
+  linkButton: { background: 'none', border: 'none', color: 'var(--color-accent)', cursor: 'pointer', fontSize: 12.5, padding: 0, fontFamily: 'var(--font-sans)' },
+  bulkBar: { display: 'flex', alignItems: 'center', gap: 10, background: 'var(--color-accent-soft)', border: '1px solid var(--color-accent)', borderRadius: 3, padding: '8px 12px', marginBottom: 12, fontSize: 13 },
+  secondaryButtonSmall: { background: 'var(--color-surface)', color: 'var(--color-accent)', border: '1px solid var(--color-accent)', padding: '5px 10px', borderRadius: 3, cursor: 'pointer', fontSize: 12, fontFamily: 'var(--font-sans)' },
+  dangerButtonSmall: { background: 'var(--color-surface)', color: 'var(--color-danger)', border: '1px solid var(--color-danger)', padding: '5px 10px', borderRadius: 3, cursor: 'pointer', fontSize: 12, fontFamily: 'var(--font-sans)' },
+  rawText: { background: 'var(--color-paper)', padding: 12, borderRadius: 3, whiteSpace: 'pre-wrap', fontSize: 12.5, fontFamily: 'var(--font-mono)', border: '1px solid var(--color-line)' },
 }

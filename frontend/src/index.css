@@ -1,2 +1,200 @@
+/* ============================================================
+   Design system — "technical ledger"
+   Grounded in what this app actually handles: steel, pipes,
+   cement, cables — trade data that belongs on a spec sheet, not
+   a generic dashboard. Every quantity/price/date reads in a
+   monospace figure like a real ledger; section labels are
+   tracked uppercase like a technical drawing's title block;
+   status badges are stamp-like, since "Approved" genuinely is
+   a stamp in procurement. Blueprint-blue is the structural
+   color; rust-orange is spent sparingly, only on primary calls
+   to action.
+   ============================================================ */
+
+:root {
+  /* Palette */
+  --color-ink: #1a2330;        /* primary text */
+  --color-ink-soft: #4a5568;   /* secondary text */
+  --color-muted: #8891a0;      /* tertiary / placeholder text */
+  --color-paper: #f3f5f7;      /* app background */
+  --color-surface: #ffffff;    /* cards, tables, inputs */
+  --color-line: #dde2e7;       /* hairline borders */
+  --color-line-strong: #c3cad2;
+
+  --color-accent: #1b4f72;         /* blueprint blue — structure, links, primary */
+  --color-accent-hover: #143a56;
+  --color-accent-soft: #e8eef3;    /* tint backgrounds */
+
+  --color-rust: #b5461f;           /* safety-orange — used sparingly, primary actions only */
+  --color-rust-hover: #963a19;
+  --color-rust-soft: #fbe9e2;
+
+  --color-success: #2f6f4e;
+  --color-success-soft: #e6f2ec;
+  --color-warning: #97650a;
+  --color-warning-soft: #fbf1de;
+  --color-danger: #a63a34;
+  --color-danger-soft: #fbeae9;
+
+  /* Type */
+  --font-sans: 'IBM Plex Sans', -apple-system, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+
+  /* Shape */
+  --radius: 3px;
+  --radius-lg: 5px;
+}
+
 * { box-sizing: border-box; }
-body { margin: 0; background: #ffffff; color: #111; }
+
+html, body {
+  margin: 0;
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3 { font-family: var(--font-sans); font-weight: 600; letter-spacing: -0.01em; }
+
+/* Tabular/mono figures for anything numeric — quantities, prices,
+   GST %, dates, reference numbers — so the app reads like a ledger. */
+.num, .mono, td.num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Small tracked-caps label, used above section headings the way a
+   technical drawing labels a panel of its title block. */
+.eyebrow {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+  margin-bottom: 4px;
+}
+
+/* Buttons */
+.btn {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 8px 14px;
+  border-radius: var(--radius);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-primary { background: var(--color-rust); color: #fff; }
+.btn-primary:hover:not(:disabled) { background: var(--color-rust-hover); }
+.btn-secondary { background: var(--color-surface); color: var(--color-accent); border-color: var(--color-accent); }
+.btn-secondary:hover:not(:disabled) { background: var(--color-accent-soft); }
+.btn-success { background: var(--color-success); color: #fff; }
+.btn-success:hover:not(:disabled) { background: #244f37; }
+.btn-danger { background: var(--color-surface); color: var(--color-danger); border-color: var(--color-danger); }
+.btn-danger:hover:not(:disabled) { background: var(--color-danger-soft); }
+.btn-link {
+  background: none; border: none; padding: 0; cursor: pointer;
+  color: var(--color-accent); font-size: 13px; font-family: var(--font-sans);
+  text-decoration: none;
+}
+.btn-link:hover { text-decoration: underline; }
+.btn-link-danger { color: var(--color-danger); }
+
+/* Inputs */
+input[type="text"], input[type="number"], input[type="search"], textarea, select {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  padding: 8px 10px;
+  border: 1px solid var(--color-line-strong);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  color: var(--color-ink);
+}
+input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+/* Cards / surfaces */
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-lg);
+}
+
+/* Tables — the primary surface of this whole app */
+.ledger-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.ledger-table th {
+  text-align: left;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+  padding: 10px 10px;
+  border-bottom: 1px solid var(--color-line-strong);
+  background: var(--color-paper);
+}
+.ledger-table td {
+  padding: 10px 10px;
+  border-bottom: 1px solid var(--color-line);
+  color: var(--color-ink);
+  vertical-align: middle;
+}
+.ledger-table tr:hover td { background: var(--color-accent-soft); }
+
+/* Stamp-style status badges */
+.stamp {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 2px;
+  border: 1px solid currentColor;
+}
+.stamp-neutral { color: var(--color-ink-soft); background: var(--color-paper); }
+.stamp-accent { color: var(--color-accent); background: var(--color-accent-soft); }
+.stamp-success { color: var(--color-success); background: var(--color-success-soft); }
+.stamp-warning { color: var(--color-warning); background: var(--color-warning-soft); }
+.stamp-danger { color: var(--color-danger); background: var(--color-danger-soft); }
+
+/* Banners */
+.banner {
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  margin-bottom: 14px;
+  border-left: 3px solid transparent;
+}
+.banner-error { background: var(--color-danger-soft); color: var(--color-danger); border-color: var(--color-danger); }
+.banner-info { background: var(--color-accent-soft); color: var(--color-accent); border-color: var(--color-accent); }
+.banner-warning { background: var(--color-warning-soft); color: var(--color-warning); border-color: var(--color-warning); }
+
+::placeholder { color: var(--color-muted); }
+
+/* Elements with the "no-print" class (nav tabs, action buttons, banners)
+   are hidden when the page is printed or "printed" to PDF, so the output
+   is a clean, customer-facing document instead of the full app UI. */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  html, body {
+    background: #fff;
+    margin: 0;
+  }
+}
