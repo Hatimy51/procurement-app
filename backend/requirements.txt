@@ -9,3 +9,4 @@ pillow==10.4.0
 pytesseract==0.3.13
 rapidfuzz==3.10.1
 pypdf==5.9.0
+bcrypt==4.2.1

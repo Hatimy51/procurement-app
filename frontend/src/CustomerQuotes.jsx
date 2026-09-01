@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { api } from './api'
 import PageHeader from './PageHeader'
+import { useAuth } from './AuthContext'
 
 const STATUS_LABEL = { draft: 'Draft', approved: 'Approved', sent: 'Sent' }
 const STATUS_STAMP = { draft: 'stamp-neutral', approved: 'stamp-accent', sent: 'stamp-success' }
@@ -14,6 +15,7 @@ function StatusBadge({ status }) {
 }
 
 export default function CustomerQuotes() {
+  const { user } = useAuth()
   const [ready, setReady] = useState([])
   const [quotes, setQuotes] = useState([])
   const [loading, setLoading] = useState(true)
@@ -26,7 +28,6 @@ export default function CustomerQuotes() {
   const [detailLoading, setDetailLoading] = useState(false)
   const [notesDraft, setNotesDraft] = useState('')
   const [priceDrafts, setPriceDrafts] = useState({}) // line_item_id -> price string
-  const [approverName, setApproverName] = useState('')
   const [saving, setSaving] = useState(false)
   const [approving, setApproving] = useState(false)
 
@@ -74,7 +75,6 @@ export default function CustomerQuotes() {
       const drafts = {}
       data.items.forEach((i) => { drafts[i.id] = i.unit_price ?? '' })
       setPriceDrafts(drafts)
-      setApproverName(data.approved_by_name || '')
     } catch (e) {
       setError(e.message)
     } finally {
@@ -86,7 +86,6 @@ export default function CustomerQuotes() {
     setSelectedId(null)
     setDetail(null)
     setPriceDrafts({})
-    setApproverName('')
   }
 
   async function refreshDetail() {
@@ -120,7 +119,7 @@ export default function CustomerQuotes() {
     setApproving(true)
     setError(null)
     try {
-      await api.approveQuote(selectedId, approverName)
+      await api.approveQuote(selectedId)
       setInfoMessage('Quote approved.')
       await refreshDetailFull()
       loadList()
@@ -134,7 +133,6 @@ export default function CustomerQuotes() {
   async function refreshDetailFull() {
     const data = await api.getCustomerQuoteDetail(selectedId)
     setDetail(data)
-    setApproverName(data.approved_by_name || '')
   }
 
   async function handleRevert() {
@@ -194,7 +192,7 @@ export default function CustomerQuotes() {
           <button style={styles.linkButton} onClick={backToList}>← Back to list</button>
           <div>
             <button style={styles.secondaryButton} onClick={() => window.print()}>Print / Export</button>
-            {isDraft && (
+            {isDraft && user.role === 'purchase' && (
               <button style={styles.dangerLinkButton} onClick={handleDelete}>Delete draft</button>
             )}
           </div>
@@ -238,7 +236,8 @@ export default function CustomerQuotes() {
           </thead>
           <tbody>
             {detail.items.map((item) => {
-              const price = isDraft ? priceDrafts[item.id] : item.unit_price
+              const canEdit = isDraft && user.role === 'purchase'
+              const price = canEdit ? priceDrafts[item.id] : item.unit_price
               const lineTotal = price !== '' && price != null ? Number(price) * Number(item.quantity) : null
               return (
                 <tr key={item.id} style={styles.tr}>
@@ -247,7 +246,7 @@ export default function CustomerQuotes() {
                   <td style={{ ...styles.td, fontFamily: 'var(--font-mono)' }}>{item.quantity}</td>
                   <td style={styles.td}>{item.unit}</td>
                   <td style={{ ...styles.td, fontFamily: 'var(--font-mono)' }}>
-                    {isDraft ? (
+                    {canEdit ? (
                       <input
                         style={styles.priceInput}
                         type="number"
@@ -276,7 +275,7 @@ export default function CustomerQuotes() {
 
         <div style={{ marginTop: 16 }}>
           <label style={styles.label}>Notes (payment terms, validity, etc.)</label>
-          {isDraft ? (
+          {isDraft && user.role === 'purchase' ? (
             <textarea
               style={styles.textarea}
               value={notesDraft}
@@ -289,32 +288,32 @@ export default function CustomerQuotes() {
         </div>
 
         <div style={styles.actionsRow} className="no-print">
-          {isDraft && (
-            <>
-              <button style={styles.primaryButton} onClick={handleSaveDraft} disabled={saving}>
-                {saving ? 'Saving…' : 'Save Draft'}
-              </button>
-              <input
-                style={styles.approverInput}
-                placeholder="Approver name"
-                value={approverName}
-                onChange={(e) => setApproverName(e.target.value)}
-              />
-              <button
-                style={styles.successButton}
-                onClick={handleApprove}
-                disabled={approving || !approverName.trim() || detail.items_price_missing > 0}
-                title={detail.items_price_missing > 0 ? 'Every item needs a price before approving' : ''}
-              >
-                {approving ? 'Approving…' : 'Approve'}
-              </button>
-            </>
+          {isDraft && user.role === 'purchase' && (
+            <button style={styles.primaryButton} onClick={handleSaveDraft} disabled={saving}>
+              {saving ? 'Saving…' : 'Save Draft'}
+            </button>
           )}
-          {isApproved && (
+          {isDraft && user.role === 'manager' && (
+            <button
+              style={styles.successButton}
+              onClick={handleApprove}
+              disabled={approving || detail.items_price_missing > 0}
+              title={detail.items_price_missing > 0 ? 'Every item needs a price before approving' : ''}
+            >
+              {approving ? 'Approving…' : 'Approve'}
+            </button>
+          )}
+          {isDraft && user.role === 'purchase' && (
+            <p style={styles.muted}>Once this is ready, a Manager will need to approve it before it can be sent.</p>
+          )}
+          {isApproved && user.role === 'purchase' && (
             <>
               <button style={styles.secondaryButton} onClick={handleRevert}>Revert to Draft</button>
               <button style={styles.successButton} onClick={handleMarkSent}>Mark as Sent</button>
             </>
+          )}
+          {isApproved && user.role === 'manager' && (
+            <p style={styles.muted}>Approved — waiting for Purchase to send it.</p>
           )}
           {isSent && <p style={styles.muted}>This quote is sent and locked.</p>}
         </div>
@@ -360,13 +359,17 @@ export default function CustomerQuotes() {
                     <td style={styles.td}>{e.item_count}</td>
                     <td style={styles.td}>{e.items_price_missing > 0 ? e.items_price_missing : '—'}</td>
                     <td style={styles.td}>
-                      <button
-                        style={styles.primaryButton}
-                        onClick={() => handleGenerate(e.id)}
-                        disabled={generatingId === e.id}
-                      >
-                        {generatingId === e.id ? 'Generating…' : 'Generate Quote'}
-                      </button>
+                      {user.role === 'purchase' ? (
+                        <button
+                          style={styles.primaryButton}
+                          onClick={() => handleGenerate(e.id)}
+                          disabled={generatingId === e.id}
+                        >
+                          {generatingId === e.id ? 'Generating…' : 'Generate Quote'}
+                        </button>
+                      ) : (
+                        <span style={styles.muted}>Purchase-only action</span>
+                      )}
                     </td>
                   </tr>
                 ))}

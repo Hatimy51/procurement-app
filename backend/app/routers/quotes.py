@@ -6,9 +6,10 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app import models
+from app.security import get_current_user
 from app.schemas_quotes import (
     ReadyEnquiryOut, QuoteListItemOut, QuoteDetailOut, QuoteLineItemOut,
-    QuoteDraftUpdate, QuoteApproveRequest,
+    QuoteDraftUpdate,
 )
 
 router = APIRouter(prefix="/api/quotes", tags=["quotes"])
@@ -195,23 +196,25 @@ def update_quote_draft(quote_id: str, payload: QuoteDraftUpdate, db: Session = D
 
 
 @router.post("/{quote_id}/approve", response_model=QuoteDetailOut)
-def approve_quote(quote_id: str, payload: QuoteApproveRequest, db: Session = Depends(get_db)):
-    """Approver sign-off. Blocked if any line item is still missing a price
-    — a quote shouldn't go out the door with unpriced items."""
+def approve_quote(quote_id: str, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+    """Manager sign-off — enforced by the router-level access dependency
+    in main.py (any request to a path ending in /approve requires the
+    Manager role), so by the time we're here the caller is guaranteed to
+    be a Manager. Records who approved it from their real login, not a
+    free-text field anyone could type into."""
     quote = db.query(models.Quote).filter(models.Quote.id == quote_id).first()
     if not quote:
         raise HTTPException(404, "Quote not found")
     if quote.status != models.QuoteStatus.draft:
         raise HTTPException(400, "Only draft quotes can be approved.")
-    if not payload.approved_by_name.strip():
-        raise HTTPException(400, "Approver name is required.")
 
     missing = sum(1 for li in quote.line_items if li.unit_price is None)
     if missing:
         raise HTTPException(400, f"{missing} item(s) still have no price. Fill those in before approving.")
 
     quote.status = models.QuoteStatus.approved
-    quote.approved_by_name = payload.approved_by_name.strip()
+    quote.approved_by_name = user.name
+    quote.approved_by_user_id = user.id
     quote.approved_at = datetime.utcnow()
     quote.enquiry.status = models.EnquiryStatus.approved
     db.commit()

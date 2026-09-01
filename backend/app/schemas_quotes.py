@@ -70,5 +70,3 @@ class QuoteDraftUpdate(BaseModel):
     items: list[QuoteLineItemUpdate] = []
 
 
-class QuoteApproveRequest(BaseModel):
-    approved_by_name: str

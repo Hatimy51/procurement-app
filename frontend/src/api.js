@@ -15,6 +15,16 @@ async function request(path, options = {}) {
 }
 
 export const api = {
+  // Auth
+  getBootstrapStatus: () => request('/auth/bootstrap-status'),
+  setupFirstAccount: (payload) => request('/auth/setup', { method: 'POST', body: JSON.stringify(payload) }),
+  login: (email, password) => request('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
+  logout: () => request('/auth/logout', { method: 'POST' }),
+  getMe: () => request('/auth/me'),
+  listUsers: () => request('/auth/users'),
+  createUser: (payload) => request('/auth/users', { method: 'POST', body: JSON.stringify(payload) }),
+  deleteUser: (id) => request(`/auth/users/${id}`, { method: 'DELETE' }),
+
   listProducts: (search) =>
     request(`/products${search ? `?search=${encodeURIComponent(search)}` : ''}`),
   createProduct: (product) =>
@@ -123,11 +133,7 @@ export const api = {
   getCustomerQuoteDetail: (id) => request(`/quotes/${id}`),
   updateQuoteDraft: (id, payload) =>
     request(`/quotes/${id}`, { method: 'PUT', body: JSON.stringify(payload) }),
-  approveQuote: (id, approvedByName) =>
-    request(`/quotes/${id}/approve`, {
-      method: 'POST',
-      body: JSON.stringify({ approved_by_name: approvedByName }),
-    }),
+  approveQuote: (id) => request(`/quotes/${id}/approve`, { method: 'POST' }),
   revertQuoteToDraft: (id) => request(`/quotes/${id}/revert-to-draft`, { method: 'POST' }),
   markQuoteSent: (id) => request(`/quotes/${id}/mark-sent`, { method: 'POST' }),
   deleteCustomerQuote: (id) => request(`/quotes/${id}`, { method: 'DELETE' }),
@@ -171,4 +177,10 @@ export const api = {
   disconnectInbox: () => request('/inbox/disconnect', { method: 'POST' }),
   scanInbox: () => request('/inbox/scan', { method: 'POST' }),
   getInboxActivity: () => request('/inbox/activity'),
+
+  // Customers
+  listCustomers: () => request('/customers'),
+  createCustomer: (payload) => request('/customers', { method: 'POST', body: JSON.stringify(payload) }),
+  updateCustomer: (id, payload) => request(`/customers/${id}`, { method: 'PUT', body: JSON.stringify(payload) }),
+  deleteCustomer: (id) => request(`/customers/${id}`, { method: 'DELETE' }),
 }

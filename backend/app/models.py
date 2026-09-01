@@ -51,7 +51,9 @@ class Customer(Base):
     __tablename__ = "customers"
     id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
     name = Column(String, nullable=False)
-    contact_info = Column(Text)
+    email = Column(String, nullable=True)
+    phone = Column(String, nullable=True)
+    contact_info = Column(Text)  # legacy free-text field, kept but no longer shown in the UI
     created_at = Column(DateTime, default=datetime.utcnow)
 
     sites = relationship("Site", back_populates="customer")
@@ -244,15 +246,41 @@ class QuoteLineItem(Base):
     enquiry_item = relationship("EnquiryItem")
 
 
+class UserRole(str, enum.Enum):
+    purchase = "purchase"
+    accounts = "accounts"
+    manager = "manager"
+
+
 class User(Base):
+    """
+    A login account. Replaces the old is_purchaser/is_approver/is_accounts
+    boolean-flag design (never actually used — no login system existed
+    until now) with a single fixed role per person, matching how access is
+    actually granted: Purchase gets every screen except Invoices; Accounts
+    gets Invoices only; Manager can view everything but can only ever
+    approve a Customer Quote, nothing else. Multiple people can share a
+    role (e.g. two Purchase accounts).
+    """
     __tablename__ = "users"
     id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
     name = Column(String, nullable=False)
     email = Column(String, unique=True, nullable=False)
-    is_purchaser = Column(Boolean, default=False)
-    is_approver = Column(Boolean, default=False)
-    is_accounts = Column(Boolean, default=False)
+    password_hash = Column(String, nullable=False)
+    role = Column(Enum(UserRole), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class Session(Base):
+    """A logged-in browser session. Deliberately simple (no expiry timer) —
+    this app runs on one trusted local machine; a session lasts until the
+    person logs out."""
+    __tablename__ = "sessions"
+    token = Column(String, primary_key=True)
+    user_id = Column(UUID(as_uuid=False), ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User")
 
 
 class ImportJob(Base):
