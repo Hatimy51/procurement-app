@@ -16,8 +16,12 @@ from app.routers import store_locations, vendor_portal
 
 app = FastAPI(title="Procurement Automation API", version="0.1.0")
 
-# Allow the React frontend (running on a different port) to call this API.
-# Tighten this once you know the real deployed frontend origin.
+raw_origins = os.getenv(
+    "ALLOWED_ORIGINS",
+    "http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173,http://127.0.0.1:3000"
+)
+allowed_origins = [o.strip() for o in raw_origins.split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
