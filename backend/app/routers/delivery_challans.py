@@ -51,15 +51,39 @@ def _line_status(db: Session, qli: models.QuoteLineItem) -> QuoteLineDeliverySta
     )
 
 
+def _po_delivered_so_far(db: Session, po_line_item_id: str) -> Decimal:
+    total = (
+        db.query(func.coalesce(func.sum(models.DeliveryChallanLineItem.quantity_delivered), 0))
+        .join(models.DeliveryChallan)
+        .filter(
+            models.DeliveryChallanLineItem.po_line_item_id == po_line_item_id,
+            models.DeliveryChallan.status == models.DCStatus.dispatched,
+        )
+        .scalar()
+    )
+    return Decimal(total or 0)
+
+
 def _detail_out(dc: models.DeliveryChallan) -> DeliveryChallanDetailOut:
     quote = dc.customer_quote
+    po = dc.purchase_order
+    po_customer_quote = po.customer_quote if po else None
+    customer_name = "Unknown customer"
+    site_name = "Unknown site"
+    if quote and quote.enquiry and quote.enquiry.site:
+        customer_name = quote.enquiry.site.customer.name if quote.enquiry.site.customer else "Unknown customer"
+        site_name = quote.enquiry.site.name
+    elif po_customer_quote and po_customer_quote.enquiry and po_customer_quote.enquiry.site:
+        customer_name = po_customer_quote.enquiry.site.customer.name if po_customer_quote.enquiry.site.customer else "Unknown customer"
+        site_name = po_customer_quote.enquiry.site.name
     return DeliveryChallanDetailOut(
         id=dc.id,
         dc_number=dc.dc_number,
         status=dc.status.value if hasattr(dc.status, "value") else dc.status,
         quote_number=quote.quote_number if quote else "—",
-        customer_name=quote.enquiry.site.customer.name if quote and quote.enquiry and quote.enquiry.site and quote.enquiry.site.customer else "Unknown customer",
-        site_name=quote.enquiry.site.name if quote and quote.enquiry and quote.enquiry.site else "Unknown site",
+        po_number=po.po_number if po else None,
+        customer_name=customer_name,
+        site_name=site_name,
         vehicle_number=dc.vehicle_number,
         driver_name=dc.driver_name,
         notes=dc.notes,
@@ -68,6 +92,7 @@ def _detail_out(dc: models.DeliveryChallan) -> DeliveryChallanDetailOut:
         items=[
             DCLineItemOut(
                 id=li.id, quote_line_item_id=li.quote_line_item_id,
+                po_line_item_id=li.po_line_item_id,
                 description=li.description, spec=li.spec, unit=li.unit,
                 quantity_delivered=li.quantity_delivered,
             )
@@ -150,8 +175,16 @@ def list_delivery_challans(db: Session = Depends(get_db)):
             dc_number=dc.dc_number,
             status=dc.status.value if hasattr(dc.status, "value") else dc.status,
             quote_number=quote.quote_number if quote else "—",
-            customer_name=enquiry.site.customer.name if enquiry and enquiry.site and enquiry.site.customer else "Unknown customer",
-            site_name=enquiry.site.name if enquiry and enquiry.site else "Unknown site",
+            po_number=dc.purchase_order.po_number if dc.purchase_order else None,
+            customer_name=(enquiry.site.customer.name if enquiry and enquiry.site and enquiry.site.customer else
+                           (dc.purchase_order.customer_quote.enquiry.site.customer.name
+                            if dc.purchase_order and dc.purchase_order.customer_quote and dc.purchase_order.customer_quote.enquiry
+                            and dc.purchase_order.customer_quote.enquiry.site and dc.purchase_order.customer_quote.enquiry.site.customer
+                            else "Unknown customer")),
+            site_name=(enquiry.site.name if enquiry and enquiry.site else
+                       (dc.purchase_order.customer_quote.enquiry.site.name
+                        if dc.purchase_order and dc.purchase_order.customer_quote and dc.purchase_order.customer_quote.enquiry
+                        and dc.purchase_order.customer_quote.enquiry.site else "Unknown site")),
             item_count=len(dc.line_items),
             created_at=dc.created_at,
         ))
@@ -160,34 +193,75 @@ def list_delivery_challans(db: Session = Depends(get_db)):
 
 @router.post("", response_model=DeliveryChallanDetailOut)
 def create_delivery_challan(payload: DeliveryChallanCreate, db: Session = Depends(get_db)):
-    quote = db.query(models.Quote).filter(models.Quote.id == payload.customer_quote_id).first()
-    if not quote:
-        raise HTTPException(404, "Quote not found")
-    if quote.status not in ELIGIBLE_QUOTE_STATUSES:
-        raise HTTPException(400, "Only approved or sent quotes can have a delivery challan raised against them.")
+    if payload.customer_quote_id:
+        quote = db.query(models.Quote).filter(models.Quote.id == payload.customer_quote_id).first()
+        if not quote:
+            raise HTTPException(404, "Quote not found")
+        if quote.status not in ELIGIBLE_QUOTE_STATUSES:
+            raise HTTPException(400, "Only approved or sent quotes can have a delivery challan raised against them.")
+        _validate_items_against_remaining(db, quote, payload.items)
 
-    _validate_items_against_remaining(db, quote, payload.items)
+        qli_by_id = {li.id: li for li in quote.line_items}
+        dc = models.DeliveryChallan(
+            dc_number="", customer_quote_id=quote.id, po_id=None,
+            vehicle_number=payload.vehicle_number, driver_name=payload.driver_name,
+            notes=payload.notes, status=models.DCStatus.draft,
+        )
+        db.add(dc)
+        db.flush()
+        dc.dc_number = _dc_number(dc.id)
 
-    qli_by_id = {li.id: li for li in quote.line_items}
-    dc = models.DeliveryChallan(
-        dc_number="", customer_quote_id=quote.id,
-        vehicle_number=payload.vehicle_number, driver_name=payload.driver_name,
-        notes=payload.notes, status=models.DCStatus.draft,
-    )
-    db.add(dc)
-    db.flush()
-    dc.dc_number = _dc_number(dc.id)
+        for item in payload.items:
+            if not item.quote_line_item_id:
+                raise HTTPException(400, "Quote-based challans require quote_line_item_id.")
+            qli = qli_by_id[item.quote_line_item_id]
+            db.add(models.DeliveryChallanLineItem(
+                dc_id=dc.id, quote_line_item_id=qli.id, po_line_item_id=None,
+                description=qli.description, spec=qli.spec, unit=qli.unit,
+                quantity_delivered=item.quantity_delivered,
+            ))
+    elif payload.po_id:
+        po = db.query(models.PurchaseOrder).filter(models.PurchaseOrder.id == payload.po_id).first()
+        if not po:
+            raise HTTPException(404, "Purchase order not found")
+        if not payload.items:
+            raise HTTPException(400, "A delivery challan needs at least one item.")
 
-    for item in payload.items:
-        qli = qli_by_id[item.quote_line_item_id]
-        db.add(models.DeliveryChallanLineItem(
-            dc_id=dc.id,
-            quote_line_item_id=qli.id,
-            description=qli.description,
-            spec=qli.spec,
-            unit=qli.unit,
-            quantity_delivered=item.quantity_delivered,
-        ))
+        pli_by_id = {li.id: li for li in po.line_items}
+        if any(not item.po_line_item_id for item in payload.items):
+            raise HTTPException(400, "PO-based challans require po_line_item_id.")
+
+        for item in payload.items:
+            pli = pli_by_id.get(item.po_line_item_id)
+            if not pli:
+                raise HTTPException(400, "One of the items doesn't belong to this purchase order.")
+            if item.quantity_delivered <= 0:
+                raise HTTPException(400, f"Quantity for '{pli.description}' must be greater than zero.")
+            remaining = pli.quantity - _po_delivered_so_far(db, pli.id)
+            if item.quantity_delivered > remaining:
+                raise HTTPException(
+                    400,
+                    f"'{pli.description}': trying to receive {item.quantity_delivered} {pli.unit}, "
+                    f"but only {remaining} {pli.unit} remains outstanding on this PO.",
+                )
+
+        dc = models.DeliveryChallan(
+            dc_number="", customer_quote_id=None, po_id=po.id,
+            vehicle_number=payload.vehicle_number, driver_name=payload.driver_name,
+            notes=payload.notes, status=models.DCStatus.draft,
+        )
+        db.add(dc)
+        db.flush()
+        dc.dc_number = _dc_number(dc.id)
+        for item in payload.items:
+            pli = pli_by_id[item.po_line_item_id]
+            db.add(models.DeliveryChallanLineItem(
+                dc_id=dc.id, quote_line_item_id=None, po_line_item_id=pli.id,
+                description=pli.description, spec=pli.spec, unit=pli.unit,
+                quantity_delivered=item.quantity_delivered,
+            ))
+    else:
+        raise HTTPException(400, "Provide either customer_quote_id or po_id.")
 
     db.commit()
     db.refresh(dc)
@@ -210,25 +284,46 @@ def update_delivery_challan_draft(dc_id: str, payload: DeliveryChallanDraftUpdat
     if dc.status != models.DCStatus.draft:
         raise HTTPException(400, "Only draft delivery challans can be edited.")
 
-    quote = dc.customer_quote
-    _validate_items_against_remaining(db, quote, payload.items)
-
     dc.vehicle_number = payload.vehicle_number
     dc.driver_name = payload.driver_name
     dc.notes = payload.notes
     db.query(models.DeliveryChallanLineItem).filter(models.DeliveryChallanLineItem.dc_id == dc.id).delete()
 
-    qli_by_id = {li.id: li for li in quote.line_items}
-    for item in payload.items:
-        qli = qli_by_id[item.quote_line_item_id]
-        db.add(models.DeliveryChallanLineItem(
-            dc_id=dc.id,
-            quote_line_item_id=qli.id,
-            description=qli.description,
-            spec=qli.spec,
-            unit=qli.unit,
-            quantity_delivered=item.quantity_delivered,
-        ))
+    if dc.customer_quote:
+        quote = dc.customer_quote
+        _validate_items_against_remaining(db, quote, payload.items)
+        qli_by_id = {li.id: li for li in quote.line_items}
+        for item in payload.items:
+            if not item.quote_line_item_id:
+                raise HTTPException(400, "Quote-based challans require quote_line_item_id.")
+            qli = qli_by_id[item.quote_line_item_id]
+            db.add(models.DeliveryChallanLineItem(
+                dc_id=dc.id, quote_line_item_id=qli.id, po_line_item_id=None,
+                description=qli.description, spec=qli.spec, unit=qli.unit,
+                quantity_delivered=item.quantity_delivered,
+            ))
+    elif dc.purchase_order:
+        po = dc.purchase_order
+        pli_by_id = {li.id: li for li in po.line_items}
+        for item in payload.items:
+            if not item.po_line_item_id:
+                raise HTTPException(400, "PO-based challans require po_line_item_id.")
+            pli = pli_by_id.get(item.po_line_item_id)
+            if not pli:
+                raise HTTPException(400, "One of the items doesn't belong to this purchase order.")
+            remaining = pli.quantity - _po_delivered_so_far(db, pli.id)
+            if item.quantity_delivered <= 0 or item.quantity_delivered > remaining:
+                raise HTTPException(
+                    400,
+                    f"'{pli.description}': only {remaining} {pli.unit} remains outstanding on this PO.",
+                )
+            db.add(models.DeliveryChallanLineItem(
+                dc_id=dc.id, quote_line_item_id=None, po_line_item_id=pli.id,
+                description=pli.description, spec=pli.spec, unit=pli.unit,
+                quantity_delivered=item.quantity_delivered,
+            ))
+    else:
+        raise HTTPException(400, "This delivery challan has no source document.")
 
     db.commit()
     db.refresh(dc)
@@ -248,13 +343,24 @@ def mark_dispatched(dc_id: str, db: Session = Depends(get_db)):
         raise HTTPException(400, "Only draft delivery challans can be marked as dispatched.")
 
     for li in dc.line_items:
-        remaining = li.quote_line_item.quantity - _delivered_so_far(db, li.quote_line_item_id)
-        if li.quantity_delivered > remaining:
-            raise HTTPException(
-                400,
-                f"'{li.description}': only {remaining} {li.unit} remains undelivered now — "
-                f"another delivery may have gone out since this draft was created. Please adjust before dispatching.",
-            )
+        if li.quote_line_item_id:
+            remaining = li.quote_line_item.quantity - _delivered_so_far(db, li.quote_line_item_id)
+            if li.quantity_delivered > remaining:
+                raise HTTPException(
+                    400,
+                    f"'{li.description}': only {remaining} {li.unit} remains undelivered now — "
+                    f"another delivery may have gone out since this draft was created. Please adjust before dispatching.",
+                )
+        elif li.po_line_item_id:
+            remaining = li.purchase_order_line_item.quantity - _po_delivered_so_far(db, li.po_line_item_id)
+            if li.quantity_delivered > remaining:
+                raise HTTPException(
+                    400,
+                    f"'{li.description}': only {remaining} {li.unit} remains outstanding now — "
+                    f"another PO receipt may have been dispatched since this draft was created. Please adjust before dispatching.",
+                )
+        else:
+            raise HTTPException(400, f"'{li.description}' has no source line item.")
 
     dc.status = models.DCStatus.dispatched
     dc.dispatched_at = datetime.utcnow()

@@ -10,3 +10,4 @@ pytesseract==0.3.13
 rapidfuzz==3.10.1
 pypdf==5.9.0
 bcrypt==4.2.1
+requests==2.32.3

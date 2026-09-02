@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect } from 'react'
 import {
   Inbox as InboxIcon, Package, Truck, History, FileText, Upload, ClipboardList,
   PackageCheck, Receipt, TrendingUp, ShoppingCart, ChevronDown, ChevronRight,
-  FileQuestion, Mail, Users as UsersIcon, LogOut,
+  FileQuestion, Mail, Users as UsersIcon, LogOut, LayoutDashboard, GitCompare,
 } from 'lucide-react'
 import { AuthProvider, useAuth } from './AuthContext'
 import Login from './Login'
@@ -19,6 +19,8 @@ import DeliveryChallans from './DeliveryChallans'
 import Invoices from './Invoices'
 import Inbox from './Inbox'
 import Users from './Users'
+import Dashboard from './Dashboard'
+import QuoteComparison from './QuoteComparison'
 
 // `roles` on each leaf item lists who may even SEE it in the sidebar,
 // matching the backend's require_router_access rules exactly:
@@ -28,6 +30,7 @@ import Users from './Users'
 //     anything on Customer Quotes' Approve action — every screen still
 //     enforces that server-side regardless of what the sidebar shows.
 const NAV = [
+  { type: 'item', key: 'dashboard', label: 'Executive Dashboard', icon: LayoutDashboard, component: Dashboard, roles: ['purchase', 'manager'] },
   { type: 'item', key: 'inbox', label: 'Inbox', icon: Mail, component: Inbox, roles: ['purchase', 'manager'] },
   { type: 'item', key: 'enquiries', label: 'Enquiries', icon: InboxIcon, component: EnquiryReview, roles: ['purchase', 'manager'] },
   { type: 'item', key: 'products', label: 'Product & Price List', icon: Package, component: ProductPriceList, roles: ['purchase', 'manager'] },
@@ -46,6 +49,7 @@ const NAV = [
       { key: 'suppliers', label: 'Suppliers', icon: Truck, component: Suppliers, roles: ['purchase', 'manager'] },
       { key: 'quotations', label: 'Quotations', icon: FileQuestion, component: Quotations, roles: ['purchase', 'manager'] },
       { key: 'supplier-quotes', label: 'Quote History', icon: History, component: QuoteHistory, roles: ['purchase', 'manager'] },
+      { key: 'quote-comparison', label: 'Quote Comparison', icon: GitCompare, component: QuoteComparison, roles: ['purchase', 'manager'] },
       { key: 'purchase-orders', label: 'Purchase Orders', icon: ClipboardList, component: PurchaseOrders, roles: ['purchase', 'manager'] },
     ],
   },

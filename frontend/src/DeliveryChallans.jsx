@@ -131,7 +131,8 @@ export default function DeliveryChallans() {
     setError(null)
     try {
       const items = detail.items.map((i) => ({
-        quote_line_item_id: i.quote_line_item_id,
+        quote_line_item_id: i.quote_line_item_id || null,
+        po_line_item_id: i.po_line_item_id || null,
         quantity_delivered: editQtyDrafts[i.id] !== undefined ? editQtyDrafts[i.id] : i.quantity_delivered,
       }))
       await api.updateDeliveryChallanDraft(selectedId, {
@@ -191,7 +192,8 @@ export default function DeliveryChallans() {
           <StatusBadge status={detail.status} />
         </div>
         <p style={styles.muted}>
-          Against quote {detail.quote_number} · {detail.customer_name} · {detail.site_name}
+          {detail.po_number ? `Against PO ${detail.po_number}` : `Against quote ${detail.quote_number}`}
+          {' · '}{detail.customer_name} · {detail.site_name}
         </p>
         <p style={styles.muted}>
           Created {new Date(detail.created_at).toLocaleString()}
@@ -362,12 +364,12 @@ export default function DeliveryChallans() {
             <p style={styles.muted}>No delivery challans created yet.</p>
           ) : (
             <table className="ledger-table">
-              <thead><tr><th>DC #</th><th>Quote</th><th>Customer</th><th>Status</th><th>Items</th><th>Created</th><th></th></tr></thead>
+              <thead><tr><th>DC #</th><th>Source</th><th>Customer</th><th>Status</th><th>Items</th><th>Created</th><th></th></tr></thead>
               <tbody>
                 {dcs.map((dc) => (
                   <tr key={dc.id}>
                     <td className="num">{dc.dc_number}</td>
-                    <td className="num">{dc.quote_number}</td>
+                    <td className="num">{dc.po_number || dc.quote_number}</td>
                     <td>{dc.customer_name}</td>
                     <td><StatusBadge status={dc.status} /></td>
                     <td className="num">{dc.item_count}</td>

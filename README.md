@@ -5,6 +5,14 @@ This README is just "how do I run it on my machine."
 
 ## What's built so far
 
+This package includes the integrated procurement workflow additions:
+
+- Vendor Quote Comparison Engine — compare supplier totals, lowest single-vendor award, optimal split-award, and savings
+- Purchase Order → GRN / Delivery Challan creation — warehouse receipt draft is pre-filled from the PO
+- Executive Dashboard — live PO, invoice, supplier, open-PO-value, and 3-way-match KPIs
+- React navigation entries for Executive Dashboard and Quote Comparison
+
+
 - Full backend data model (all 13 tables from the spec)
 - Product/Price API (list, search, create, edit, price history, latest-price lookup)
 - Enquiry ingestion API (extraction → structured items → price lookup)
@@ -13,9 +21,10 @@ This README is just "how do I run it on my machine."
 - Product & Price List screen (React) — view, search, add/edit product, add price,
   view price history, "Price Missing" flag when no price exists yet
 
-Not built yet (see spec's roadmap): supplier-quote auto-ingestion wiring, inbox
-auto-scan connection, quote generation/approval screen, PO/invoice/challan,
-store QC screen, datasheet matching.
+Also included from the current procurement workflow: supplier quote history,
+customer quote generation/approval, purchase orders, delivery challans, invoices,
+vendor quote comparison, and the executive dashboard. The PO → GRN/DC action
+creates a warehouse receipt draft directly from a sent PO.
 
 ## Prerequisites (all free)
 
@@ -46,6 +55,12 @@ store QC screen, datasheet matching.
    `http://localhost:8000/api/diagnostics/ollama` directly in your browser
    at any time — it tells you plainly whether the backend can reach Ollama
    at all, and how fast it's responding.
+
+## Database upgrade note
+
+The PO → GRN/DC feature adds PO linkage columns to the existing Delivery
+Challan tables. The backend runs a small Postgres compatibility migration at
+startup, so an existing v1 database can be upgraded in place.
 
 ## Running it
 
@@ -104,11 +119,7 @@ frontend/
 docker-compose.yml       — Postgres + backend, one command to start both
 ```
 
-## Next build steps (in order)
+## Possible next build steps
 
-1. Wire the "Add Price" / "Price Missing" flow into an actual Enquiry review
-   screen (right now enquiry ingestion works via API but has no UI yet)
-2. Supplier/RFQ screens + supplier-quote ingestion feeding back into Price Entry
-3. Inbox connection (Outlook/Gmail OAuth) for auto-scanning, per the latest
-   spec update
-4. Quote assembly + approval screen
+The remaining roadmap is deeper inbox automation, automated supplier-quote
+ingestion, store QC, and datasheet/specification matching.

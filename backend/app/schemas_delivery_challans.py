@@ -18,7 +18,8 @@ class QuoteLineDeliveryStatus(BaseModel):
     """One quote line's delivery progress — used to build the DC creation
     form, so the Purchaser can see what's left before entering this
     batch's quantity."""
-    quote_line_item_id: str
+    quote_line_item_id: str | None = None
+    po_line_item_id: str | None = None
     description: str
     spec: str | None
     unit: str
@@ -28,12 +29,14 @@ class QuoteLineDeliveryStatus(BaseModel):
 
 
 class DCLineItemIn(BaseModel):
-    quote_line_item_id: str
+    quote_line_item_id: str | None = None
+    po_line_item_id: str | None = None
     quantity_delivered: Decimal
 
 
 class DeliveryChallanCreate(BaseModel):
-    customer_quote_id: str
+    customer_quote_id: str | None = None
+    po_id: str | None = None
     vehicle_number: str | None = None
     driver_name: str | None = None
     notes: str | None = None
@@ -49,7 +52,8 @@ class DeliveryChallanDraftUpdate(BaseModel):
 
 class DCLineItemOut(BaseModel):
     id: str
-    quote_line_item_id: str
+    quote_line_item_id: str | None = None
+    po_line_item_id: str | None = None
     description: str
     spec: str | None
     unit: str
@@ -61,6 +65,7 @@ class DeliveryChallanListItemOut(BaseModel):
     dc_number: str
     status: str
     quote_number: str
+    po_number: str | None = None
     customer_name: str
     site_name: str
     item_count: int
@@ -72,6 +77,7 @@ class DeliveryChallanDetailOut(BaseModel):
     dc_number: str
     status: str
     quote_number: str
+    po_number: str | None = None
     customer_name: str
     site_name: str
     vehicle_number: str | None

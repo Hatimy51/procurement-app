@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { api } from './api'
 import PageHeader from './PageHeader'
+import SyncToERPButton from './SyncToERPButton'
 
 const STATUS_LABEL = { draft: 'Draft', issued: 'Issued' }
 const STATUS_STAMP = { draft: 'stamp-neutral', issued: 'stamp-success' }
@@ -163,8 +164,11 @@ export default function Invoices() {
       <div>
         <div style={styles.detailHeader} className="no-print">
           <button className="btn-link" onClick={() => setView('list')}>← Back to list</button>
-          <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <button className="btn btn-secondary" onClick={() => window.print()}>Print / Export</button>
+            {!isDraft && (
+              <SyncToERPButton recordData={detail} recordType="invoice" />
+            )}
             {isDraft && <button className="btn-link btn-link-danger" style={{ marginLeft: 10 }} onClick={handleDelete}>Delete draft</button>}
           </div>
         </div>

@@ -197,3 +197,99 @@ def delete_purchase_order(po_id: str, db: Session = Depends(get_db)):
     db.delete(po)
     db.commit()
     return {"deleted": True, "id": po_id}
+
+@router.post("/{po_id}/create-delivery-challan")
+def create_delivery_challan_from_po(po_id: str, db: Session = Depends(get_db)):
+    """
+    Creates a draft Delivery Challan / GRN directly from a Purchase Order.
+    All PO lines are pre-filled at their remaining outstanding quantity so
+    warehouse staff can edit the physical quantity received before dispatch.
+    """
+    po = db.query(models.PurchaseOrder).filter(models.PurchaseOrder.id == po_id).first()
+    if not po:
+        raise HTTPException(status_code=404, detail=f"Purchase Order #{po_id} not found.")
+
+    existing_challan = (
+        db.query(models.DeliveryChallan)
+        .filter(
+            models.DeliveryChallan.po_id == po.id,
+            models.DeliveryChallan.status == models.DCStatus.draft,
+        )
+        .first()
+    )
+    if existing_challan:
+        return {
+            "message": "A draft Delivery Challan already exists for this PO.",
+            "challan_id": existing_challan.id,
+            "po_id": po.id,
+            "dc_number": existing_challan.dc_number,
+        }
+
+    # Only outstanding quantities are prefilled. Prior dispatched GRNs are
+    # counted so the same PO cannot be received twice by mistake.
+    from sqlalchemy import func
+    received_by_line = {}
+    rows = (
+        db.query(
+            models.DeliveryChallanLineItem.po_line_item_id,
+            func.coalesce(func.sum(models.DeliveryChallanLineItem.quantity_delivered), 0),
+        )
+        .join(models.DeliveryChallan)
+        .filter(
+            models.DeliveryChallan.po_id == po.id,
+            models.DeliveryChallan.status == models.DCStatus.dispatched,
+        )
+        .group_by(models.DeliveryChallanLineItem.po_line_item_id)
+        .all()
+    )
+    for line_id, received in rows:
+        received_by_line[line_id] = Decimal(received or 0)
+
+    new_challan = models.DeliveryChallan(
+        po_id=po.id,
+        customer_quote_id=None,
+        dc_number="",
+        status=models.DCStatus.draft,
+        notes=f"GRN / Delivery Challan against {po.po_number}",
+    )
+    db.add(new_challan)
+    db.flush()
+    new_challan.dc_number = _po_number(new_challan.id).replace("PO-", "DC-")
+
+    for item in po.line_items:
+        outstanding = item.quantity - received_by_line.get(item.id, Decimal(0))
+        if outstanding <= 0:
+            continue
+        db.add(models.DeliveryChallanLineItem(
+            dc_id=new_challan.id,
+            quote_line_item_id=None,
+            po_line_item_id=item.id,
+            description=item.description,
+            spec=item.spec,
+            unit=item.unit,
+            quantity_delivered=outstanding,
+        ))
+
+    db.commit()
+    db.refresh(new_challan)
+
+    return {
+        "message": "Delivery Challan (GRN) created successfully.",
+        "challan_id": new_challan.id,
+        "dc_number": new_challan.dc_number,
+        "po_id": po.id,
+        "po_number": po.po_number,
+        "items": [
+            {
+                "po_line_item_id": item.po_line_item_id,
+                "description": item.description,
+                "ordered_quantity": next(
+                    (po_line.quantity for po_line in po.line_items if po_line.id == item.po_line_item_id),
+                    0,
+                ),
+                "received_quantity": item.quantity_delivered,
+                "unit": item.unit,
+            }
+            for item in new_challan.line_items
+        ],
+    }

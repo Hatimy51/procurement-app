@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { api } from './api'
 import PageHeader from './PageHeader'
+import SyncToERPButton from './SyncToERPButton'
 
 const STATUS_LABEL = { draft: 'Draft', sent: 'Sent' }
 const STATUS_STAMP = { draft: 'stamp-neutral', sent: 'stamp-success' }
@@ -212,6 +213,20 @@ export default function PurchaseOrders() {
     }
   }
 
+  async function handleCreateGRN() {
+    setError(null)
+    try {
+      const result = await api.createDeliveryChallanFromPurchaseOrder(selectedId)
+      setInfoMessage(
+        result.dc_number
+          ? `${result.message || 'GRN / Delivery Challan created.'} ${result.dc_number}`
+          : (result.message || 'GRN / Delivery Challan created.')
+      )
+    } catch (e) {
+      setError(e.message)
+    }
+  }
+
   async function handleDelete() {
     if (!window.confirm('Delete this draft purchase order?')) return
     setError(null)
@@ -233,8 +248,11 @@ export default function PurchaseOrders() {
       <div>
         <div style={styles.detailHeader} className="no-print">
           <button className="btn-link" onClick={() => setView('list')}>← Back to list</button>
-          <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <button className="btn btn-secondary" onClick={() => window.print()}>Print / Export</button>
+            {detail.status !== 'draft' && (
+              <SyncToERPButton recordData={detail} recordType="po" />
+            )}
             {isDraft && <button className="btn-link btn-link-danger" style={{ marginLeft: 10 }} onClick={handleDelete}>Delete draft</button>}
           </div>
         </div>
@@ -310,6 +328,11 @@ export default function PurchaseOrders() {
         </div>
 
         <div style={styles.actionsRow} className="no-print">
+          {detail.status === 'sent' && (
+            <button className="btn btn-secondary" onClick={handleCreateGRN}>
+              Create GRN / Delivery Challan
+            </button>
+          )}
           {isDraft ? (
             <>
               <button className="btn btn-primary" onClick={handleSaveDraft} disabled={saving}>

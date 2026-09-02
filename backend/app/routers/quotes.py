@@ -278,3 +278,147 @@ def delete_quote(quote_id: str, db: Session = Depends(get_db)):
         enquiry.status = models.EnquiryStatus.reviewed
     db.commit()
     return {"deleted": True, "id": quote_id}
+
+# ---------------------------------------------------------------------------
+# Vendor Quote Comparison Engine
+# ---------------------------------------------------------------------------
+from pydantic import BaseModel as _QuoteComparisonBaseModel, Field as _QuoteComparisonField
+from typing import Dict as _QuoteComparisonDict, List as _QuoteComparisonList, Optional as _QuoteComparisonOptional
+
+quote_comparison_router = APIRouter(
+    prefix="/api/quote-comparison",
+    tags=["Quote Comparison"],
+)
+
+
+class QuoteComparisonItem(_QuoteComparisonBaseModel):
+    description: str
+    quantity: float = _QuoteComparisonField(..., gt=0)
+    unit_price: float = _QuoteComparisonField(..., ge=0)
+    unit_of_measure: _QuoteComparisonOptional[str] = "unit"
+
+
+class VendorQuoteComparisonInput(_QuoteComparisonBaseModel):
+    supplier_name: str
+    items: _QuoteComparisonList[QuoteComparisonItem]
+    payment_terms: _QuoteComparisonOptional[str] = None
+    estimated_delivery_days: _QuoteComparisonOptional[int] = None
+
+
+class ComparisonRequest(_QuoteComparisonBaseModel):
+    quotes: _QuoteComparisonList[VendorQuoteComparisonInput]
+
+
+@quote_comparison_router.post("/analyze")
+def analyze_vendor_quotes(payload: ComparisonRequest):
+    """
+    Compares two or more supplier quotes and returns:
+      - total cost per supplier,
+      - the cheapest complete single-supplier option,
+      - the optimal split-award total by line item,
+      - potential savings from splitting the award.
+    """
+    if len(payload.quotes) < 2:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="At least 2 vendor quotes are required for comparison.",
+        )
+
+    vendor_totals: _QuoteComparisonDict[str, float] = {}
+    item_best_prices: _QuoteComparisonDict[str, dict] = {}
+    reference_items = None
+
+    for quote in payload.quotes:
+        vendor = quote.supplier_name.strip()
+        if not vendor:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Each vendor quote must have a supplier name.",
+            )
+        if vendor in vendor_totals:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Duplicate supplier name: {vendor}.",
+            )
+
+        vendor_totals[vendor] = 0.0
+
+        current_items = {}
+        for item in quote.items:
+            item_key = item.description.strip().lower()
+            if item_key in current_items:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Supplier '{vendor}' has a duplicate line item: {item.description.strip()}.",
+                )
+            current_items[item_key] = item
+
+        if reference_items is None:
+            reference_items = current_items
+        elif set(current_items) != set(reference_items):
+            missing = sorted(set(reference_items) - set(current_items))
+            extra = sorted(set(current_items) - set(reference_items))
+            detail = []
+            if missing:
+                detail.append(f"missing from '{vendor}': {', '.join(missing)}")
+            if extra:
+                detail.append(f"extra in '{vendor}': {', '.join(extra)}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Supplier quotes must contain the same line items; " + "; ".join(detail),
+            )
+
+        for item in quote.items:
+            item_key = item.description.strip().lower()
+            if not item_key:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Quote item descriptions cannot be empty.",
+                )
+
+            reference = reference_items[item_key]
+            if item.quantity != reference.quantity or (item.unit_of_measure or "unit") != (reference.unit_of_measure or "unit"):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        f"Quantity/unit mismatch for '{item.description.strip()}'. "
+                        "All suppliers must quote the same quantity and unit of measure."
+                    ),
+                )
+
+            total_item_cost = item.unit_price * reference.quantity
+            vendor_totals[vendor] += total_item_cost
+
+            existing = item_best_prices.get(item_key)
+            if existing is None or item.unit_price < existing["unit_price"]:
+                item_best_prices[item_key] = {
+                    "item_name": item.description.strip(),
+                    "cheapest_vendor": vendor,
+                    "unit_price": round(item.unit_price, 2),
+                    "quantity": item.quantity,
+                    "unit_of_measure": item.unit_of_measure or "unit",
+                    "total_line_cost": round(total_item_cost, 2),
+                }
+
+    lowest_vendor = min(vendor_totals, key=vendor_totals.get)
+    lowest_single_total = round(vendor_totals[lowest_vendor], 2)
+    optimal_split_total = round(
+        sum(i["total_line_cost"] for i in item_best_prices.values()), 2
+    )
+    potential_savings = round(
+        max(0.0, lowest_single_total - optimal_split_total), 2
+    )
+
+    return {
+        "status": "success",
+        "vendor_totals": {v: round(amt, 2) for v, amt in vendor_totals.items()},
+        "lowest_single_vendor": {
+            "supplier_name": lowest_vendor,
+            "total_cost": lowest_single_total,
+        },
+        "optimal_split_award": {
+            "total_cost": optimal_split_total,
+            "potential_savings": potential_savings,
+            "item_breakdown": list(item_best_prices.values()),
+        },
+    }

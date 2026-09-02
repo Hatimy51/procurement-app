@@ -138,6 +138,15 @@ export const api = {
   markQuoteSent: (id) => request(`/quotes/${id}/mark-sent`, { method: 'POST' }),
   deleteCustomerQuote: (id) => request(`/quotes/${id}`, { method: 'DELETE' }),
 
+  // Vendor Quote Comparison
+  analyzeQuoteComparison: (payload) =>
+    request('/quote-comparison/analyze', { method: 'POST', body: JSON.stringify(payload) }),
+
+  // Executive Dashboard
+  getDashboardMetrics: () => request('/dashboard/metrics'),
+  syncToAccounting: (payload) =>
+    request('/accounting/sync', { method: 'POST', body: JSON.stringify(payload) }),
+
   // Purchase Orders
   listPurchaseOrders: () => request('/purchase-orders'),
   createPurchaseOrder: (payload) =>
@@ -147,6 +156,8 @@ export const api = {
     request(`/purchase-orders/${id}`, { method: 'PUT', body: JSON.stringify(payload) }),
   markPurchaseOrderSent: (id) => request(`/purchase-orders/${id}/mark-sent`, { method: 'POST' }),
   deletePurchaseOrder: (id) => request(`/purchase-orders/${id}`, { method: 'DELETE' }),
+  createDeliveryChallanFromPurchaseOrder: (id) =>
+    request(`/purchase-orders/${id}/create-delivery-challan`, { method: 'POST' }),
 
   // Delivery Challans
   listReadyQuotesForDelivery: () => request('/delivery-challans/ready-quotes'),
