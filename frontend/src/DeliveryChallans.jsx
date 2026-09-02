@@ -95,10 +95,12 @@ export default function DeliveryChallans() {
         notes: createNotes || null,
         items,
       })
-      setInfoMessage('Delivery challan created.')
-      await openDetail(dc.id)
     } catch (e) {
-      setError(e.message)
+      if (e.existing_id) {
+        setError({ message: e.message, existing_id: e.existing_id, existing_number: e.existing_number })
+      } else {
+        setError(e.message)
+      }
     } finally {
       setCreating(false)
     }
@@ -192,7 +194,7 @@ export default function DeliveryChallans() {
           <StatusBadge status={detail.status} />
         </div>
         <p style={styles.muted}>
-          {detail.po_number ? `Against PO ${detail.po_number}` : `Against quote ${detail.quote_number}`}
+          Against quote {detail.quote_number}
           {' · '}{detail.customer_name} · {detail.site_name}
         </p>
         <p style={styles.muted}>
@@ -276,7 +278,21 @@ export default function DeliveryChallans() {
           action={<button className="btn-link" onClick={() => setView('list')}>← Cancel</button>}
         />
 
-        {error && <div className="banner banner-error">{error}</div>}
+        {error && (
+          <div className="banner banner-error" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+            <span>{typeof error === 'object' ? error.message : error}</span>
+            {typeof error === 'object' && error.existing_id && (
+              <button
+                type="button"
+                className="btn btn-sm btn-primary"
+                style={{ padding: '4px 10px', fontSize: '12px' }}
+                onClick={() => openDetail(error.existing_id)}
+              >
+                Jump to Draft #{error.existing_number || ''} →
+              </button>
+            )}
+          </div>
+        )}
 
         <table className="ledger-table" style={{ marginBottom: 16 }}>
           <thead>
@@ -332,7 +348,21 @@ export default function DeliveryChallans() {
         description="Goods-movement documents for approved or sent quotes — supports partial deliveries across more than one challan."
       />
 
-      {error && <div className="banner banner-error">{error}</div>}
+      {error && (
+        <div className="banner banner-error" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+          <span>{typeof error === 'object' ? error.message : error}</span>
+          {typeof error === 'object' && error.existing_id && (
+            <button
+              type="button"
+              className="btn btn-sm btn-primary"
+              style={{ padding: '4px 10px', fontSize: '12px' }}
+              onClick={() => openDetail(error.existing_id)}
+            >
+              Jump to Draft #{error.existing_number || ''} →
+            </button>
+          )}
+        </div>
+      )}
       {infoMessage && <div className="banner banner-info">{infoMessage}</div>}
 
       {loading ? (
@@ -364,12 +394,12 @@ export default function DeliveryChallans() {
             <p style={styles.muted}>No delivery challans created yet.</p>
           ) : (
             <table className="ledger-table">
-              <thead><tr><th>DC #</th><th>Source</th><th>Customer</th><th>Status</th><th>Items</th><th>Created</th><th></th></tr></thead>
+              <thead><tr><th>DC #</th><th>Quote #</th><th>Customer</th><th>Status</th><th>Items</th><th>Created</th><th></th></tr></thead>
               <tbody>
                 {dcs.map((dc) => (
                   <tr key={dc.id}>
                     <td className="num">{dc.dc_number}</td>
-                    <td className="num">{dc.po_number || dc.quote_number}</td>
+                    <td className="num">{dc.quote_number}</td>
                     <td>{dc.customer_name}</td>
                     <td><StatusBadge status={dc.status} /></td>
                     <td className="num">{dc.item_count}</td>

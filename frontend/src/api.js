@@ -9,7 +9,28 @@ async function request(path, options = {}) {
   })
   if (!res.ok) {
     const text = await res.text()
-    throw new Error(`API error ${res.status}: ${text}`)
+    let message = `API error ${res.status}: ${text}`
+    let errorData = null
+    try {
+      const json = JSON.parse(text)
+      if (json.detail) {
+        if (typeof json.detail === 'object') {
+          message = json.detail.message || JSON.stringify(json.detail)
+          errorData = json.detail
+        } else {
+          message = json.detail
+        }
+      }
+    } catch {}
+    const err = new Error(message)
+    if (errorData) {
+      err.data = errorData
+      err.existing_id = errorData.existing_id
+      err.existing_number = errorData.existing_number
+      err.error_code = errorData.error_code
+      err.document_type = errorData.document_type
+    }
+    throw err
   }
   return res.status === 204 ? null : res.json()
 }
@@ -87,6 +108,7 @@ export const api = {
   updateSupplier: (id, supplier) =>
     request(`/suppliers/${id}`, { method: 'PUT', body: JSON.stringify(supplier) }),
   deleteSupplier: (id) => request(`/suppliers/${id}`, { method: 'DELETE' }),
+  getSupplierLedger: (id) => request(`/suppliers/${id}/ledger`),
   getSuggestedSuppliers: (productIds) =>
     request(`/suppliers/suggested?product_ids=${productIds.join(',')}`),
 
@@ -146,6 +168,8 @@ export const api = {
   getDashboardMetrics: () => request('/dashboard/metrics'),
   syncToAccounting: (payload) =>
     request('/accounting/sync', { method: 'POST', body: JSON.stringify(payload) }),
+  refreshERPStatus: (payload) =>
+    request('/accounting/refresh-status', { method: 'POST', body: JSON.stringify(payload) }),
 
   // Purchase Orders
   listPurchaseOrders: () => request('/purchase-orders'),
@@ -155,9 +179,16 @@ export const api = {
   updatePurchaseOrderDraft: (id, payload) =>
     request(`/purchase-orders/${id}`, { method: 'PUT', body: JSON.stringify(payload) }),
   markPurchaseOrderSent: (id) => request(`/purchase-orders/${id}/mark-sent`, { method: 'POST' }),
+  approvePurchaseOrder: (id) => request(`/purchase-orders/${id}/approve`, { method: 'POST' }),
+  rejectPurchaseOrder: (id) => request(`/purchase-orders/${id}/reject`, { method: 'POST' }),
   deletePurchaseOrder: (id) => request(`/purchase-orders/${id}`, { method: 'DELETE' }),
   createDeliveryChallanFromPurchaseOrder: (id) =>
     request(`/purchase-orders/${id}/create-delivery-challan`, { method: 'POST' }),
+  getPODocuments: (id) => request(`/vendor-portal/po-documents/${id}`),
+
+  // Store Locations
+  listStoreLocations: () => request('/store-locations'),
+  createStoreLocation: (payload) => request('/store-locations', { method: 'POST', body: JSON.stringify(payload) }),
 
   // Delivery Challans
   listReadyQuotesForDelivery: () => request('/delivery-challans/ready-quotes'),

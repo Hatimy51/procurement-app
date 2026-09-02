@@ -97,17 +97,27 @@ def refresh_access_token(refresh_token: str) -> dict:
     })
 
 
+from app.encryption import encrypt_token, decrypt_token
+
+
 def get_valid_access_token(connection, db) -> str:
     """Refreshes and persists a new access token if the stored one has
-    expired (or is about to, within a minute)."""
-    if connection.token_expiry > datetime.utcnow() + timedelta(minutes=1):
-        return connection.access_token
+    expired (or is about to, within a minute). Encrypts tokens at rest."""
+    decrypted_access = decrypt_token(connection.access_token)
+    decrypted_refresh = decrypt_token(connection.refresh_token)
 
-    refreshed = refresh_access_token(connection.refresh_token)
-    connection.access_token = refreshed["access_token"]
+    if connection.token_expiry > datetime.utcnow() + timedelta(minutes=1) and decrypted_access:
+        return decrypted_access
+
+    if not decrypted_refresh:
+        return decrypted_access or ""
+
+    refreshed = refresh_access_token(decrypted_refresh)
+    new_access = refreshed["access_token"]
+    connection.access_token = encrypt_token(new_access)
     connection.token_expiry = datetime.utcnow() + timedelta(seconds=refreshed.get("expires_in", 3600))
     db.commit()
-    return connection.access_token
+    return new_access
 
 
 def _gmail_get(access_token: str, path: str, params: dict | None = None) -> dict:

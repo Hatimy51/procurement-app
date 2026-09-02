@@ -69,15 +69,21 @@ class ZohoBooksAdapter(BaseERPAdapter):
         except requests.RequestException as exc:
             return {"success": False, "error": f"Zoho request failed: {exc}"}
 
-    def get_payment_status(self, external_id: str) -> Dict[str, Any]:
-        url = f"{self.base_url}/bills/{external_id}?organization_id={self.org_id}"
+    def get_payment_status(self, external_id: str, record_type: str = "vendor_invoice") -> Dict[str, Any]:
+        endpoint = "invoices" if record_type == "invoice" else "bills"
+        url = f"{self.base_url}/{endpoint}/{external_id}?organization_id={self.org_id}"
         try:
             response = requests.get(url, headers=self.headers, timeout=30)
             if response.status_code == 200:
-                bill = response.json().get("bill", {})
+                data = response.json()
+                record = data.get("invoice") if record_type == "invoice" else data.get("bill", {})
+                status_raw = str(record.get("status", "")).lower()
+                is_paid = status_raw in ("paid", "settled")
                 return {
-                    "status": bill.get("status"),
-                    "paid_amount": bill.get("payment_made"),
+                    "status": "paid" if is_paid else status_raw or "unpaid",
+                    "raw_status": status_raw,
+                    "paid_amount": record.get("payment_made") or record.get("total", 0) if is_paid else 0,
+                    "balance": record.get("balance", 0),
                 }
             return {"status": "unknown", "error": response.text}
         except requests.RequestException as exc:

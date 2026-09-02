@@ -10,8 +10,11 @@ export default function Suppliers() {
 
   const [supplierFormOpen, setSupplierFormOpen] = useState(false)
   const [editingSupplierId, setEditingSupplierId] = useState(null)
+  const [activeLedgerSupplier, setActiveLedgerSupplier] = useState(null)
+  const [ledgerData, setLedgerData] = useState(null)
+  const [loadingLedger, setLoadingLedger] = useState(false)
   const [supplierForm, setSupplierForm] = useState({
-    name: '', email: '', phone: '', linked_product_ids: [], linked_categories: [],
+    name: '', email: '', phone: '', gst_number: '', linked_product_ids: [], linked_categories: [],
   })
 
   const categories = useMemo(
@@ -31,6 +34,20 @@ export default function Suppliers() {
 
   useEffect(() => { loadAll() }, [loadAll])
 
+  async function openSupplierLedger(s) {
+    setActiveLedgerSupplier(s)
+    setLoadingLedger(true)
+    setLedgerData(null)
+    try {
+      const data = await api.getSupplierLedger(s.id)
+      setLedgerData(data)
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setLoadingLedger(false)
+    }
+  }
+
   async function submitSupplierForm(e) {
     e.preventDefault()
     setError(null)
@@ -40,7 +57,7 @@ export default function Suppliers() {
       } else {
         await api.createSupplier(supplierForm)
       }
-      setSupplierForm({ name: '', email: '', phone: '', linked_product_ids: [], linked_categories: [] })
+      setSupplierForm({ name: '', email: '', phone: '', gst_number: '', linked_product_ids: [], linked_categories: [] })
       setEditingSupplierId(null)
       setSupplierFormOpen(false)
       loadAll()
@@ -55,6 +72,7 @@ export default function Suppliers() {
       name: supplier.name,
       email: supplier.email || '',
       phone: supplier.phone || '',
+      gst_number: supplier.gst_number || '',
       linked_product_ids: supplier.linked_product_ids || [],
       linked_categories: supplier.linked_categories || [],
     })
@@ -63,7 +81,7 @@ export default function Suppliers() {
 
   function openNewSupplierForm() {
     setEditingSupplierId(null)
-    setSupplierForm({ name: '', email: '', phone: '', linked_product_ids: [], linked_categories: [] })
+    setSupplierForm({ name: '', email: '', phone: '', gst_number: '', linked_product_ids: [], linked_categories: [] })
     setSupplierFormOpen(!supplierFormOpen)
   }
 
@@ -134,6 +152,15 @@ export default function Suppliers() {
                 placeholder="e.g. 98765 43210"
                 value={supplierForm.phone}
                 onChange={(e) => setSupplierForm({ ...supplierForm, phone: e.target.value })}
+              />
+            </div>
+            <div style={styles.field}>
+              <label className="eyebrow">GST Number (for Vendor Portal)</label>
+              <input
+                style={{ width: '100%' }}
+                placeholder="e.g. 27ABCDE1234F1Z5"
+                value={supplierForm.gst_number}
+                onChange={(e) => setSupplierForm({ ...supplierForm, gst_number: e.target.value })}
               />
             </div>
           </div>
@@ -222,7 +249,8 @@ export default function Suppliers() {
                       : '—'}
                   </td>
                   <td>
-                    <button className="btn-link" onClick={() => openEditSupplierForm(s)}>Edit</button>
+                    <button className="btn-link" style={{ fontWeight: 600, color: '#4f46e5' }} onClick={() => openSupplierLedger(s)}>Orders &amp; Ledger</button>
+                    <button className="btn-link" style={{ marginLeft: 8 }} onClick={() => openEditSupplierForm(s)}>Edit</button>
                     <button className="btn-link btn-link-danger" style={{ marginLeft: 8 }} onClick={() => handleDeleteSupplier(s)}>Delete</button>
                   </td>
                 </tr>
@@ -230,6 +258,72 @@ export default function Suppliers() {
             })}
           </tbody>
         </table>
+      )}
+
+      {/* Active Orders & Payment Ledger Modal */}
+      {activeLedgerSupplier && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+          <div style={{ background: '#fff', borderRadius: 10, padding: 24, width: '90%', maxWidth: 840, maxHeight: '85vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: 18 }}>Active Orders &amp; Payment Ledger</h3>
+                <p style={{ margin: '4px 0 0', fontSize: 13, color: '#6b7280' }}>Supplier: <strong>{activeLedgerSupplier.name}</strong> {activeLedgerSupplier.gst_number ? `· GST: ${activeLedgerSupplier.gst_number}` : ''}</p>
+              </div>
+              <button className="btn btn-secondary" onClick={() => setActiveLedgerSupplier(null)}>✕ Close</button>
+            </div>
+
+            {loadingLedger && <p>Loading orders ledger…</p>}
+
+            {!loadingLedger && ledgerData && ledgerData.orders?.length === 0 && (
+              <p style={{ color: '#9ca3af', fontStyle: 'italic', padding: 20 }}>No purchase orders on record for this supplier.</p>
+            )}
+
+            {!loadingLedger && ledgerData && ledgerData.orders?.length > 0 && (
+              <table className="ledger-table">
+                <thead>
+                  <tr>
+                    <th>PO #</th>
+                    <th>Site / Store</th>
+                    <th>Status</th>
+                    <th>Delivery (GRN)</th>
+                    <th>Payment</th>
+                    <th>Docs</th>
+                    <th className="num">Total Value</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ledgerData.orders.map((po) => (
+                    <tr key={po.po_id}>
+                      <td className="num"><strong>{po.po_number}</strong></td>
+                      <td>{po.store_location || '—'}</td>
+                      <td><span className="stamp stamp-neutral">{po.status}</span></td>
+                      <td>
+                        <span style={{
+                          padding: '2px 6px', borderRadius: 4, fontSize: 11, fontWeight: 700,
+                          background: po.receipt_pct >= 100 ? '#dcfce7' : po.receipt_pct > 0 ? '#fef3c7' : '#f3f4f6',
+                          color: po.receipt_pct >= 100 ? '#15803d' : po.receipt_pct > 0 ? '#b45309' : '#6b7280',
+                        }}>
+                          {po.receipt_pct >= 100 ? '✓ Recv 100%' : po.receipt_pct > 0 ? `Recv ${po.receipt_pct}%` : 'Pending'}
+                        </span>
+                      </td>
+                      <td>
+                        <span style={{
+                          padding: '2px 6px', borderRadius: 4, fontSize: 11, fontWeight: 700,
+                          background: po.erp_payment_status === 'paid' ? '#dcfce7' : '#f3f4f6',
+                          color: po.erp_payment_status === 'paid' ? '#15803d' : '#6b7280',
+                        }}>
+                          {po.erp_payment_status}
+                        </span>
+                      </td>
+                      <td>{po.document_count > 0 ? `📄 ${po.document_count}` : '—'}</td>
+                      <td className="num">₹{Number(po.total_value).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
       )}
     </div>
   )

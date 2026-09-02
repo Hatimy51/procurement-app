@@ -1,4 +1,4 @@
-"""Schemas for Delivery Challans — quantities only, no pricing."""
+"""Schemas for Delivery Challans — Outbound goods dispatch against Customer Quotes."""
 from datetime import datetime
 from decimal import Decimal
 from pydantic import BaseModel
@@ -18,8 +18,7 @@ class QuoteLineDeliveryStatus(BaseModel):
     """One quote line's delivery progress — used to build the DC creation
     form, so the Purchaser can see what's left before entering this
     batch's quantity."""
-    quote_line_item_id: str | None = None
-    po_line_item_id: str | None = None
+    quote_line_item_id: str
     description: str
     spec: str | None
     unit: str
@@ -29,14 +28,12 @@ class QuoteLineDeliveryStatus(BaseModel):
 
 
 class DCLineItemIn(BaseModel):
-    quote_line_item_id: str | None = None
-    po_line_item_id: str | None = None
+    quote_line_item_id: str
     quantity_delivered: Decimal
 
 
 class DeliveryChallanCreate(BaseModel):
-    customer_quote_id: str | None = None
-    po_id: str | None = None
+    customer_quote_id: str
     vehicle_number: str | None = None
     driver_name: str | None = None
     notes: str | None = None
@@ -52,8 +49,7 @@ class DeliveryChallanDraftUpdate(BaseModel):
 
 class DCLineItemOut(BaseModel):
     id: str
-    quote_line_item_id: str | None = None
-    po_line_item_id: str | None = None
+    quote_line_item_id: str
     description: str
     spec: str | None
     unit: str
@@ -65,7 +61,6 @@ class DeliveryChallanListItemOut(BaseModel):
     dc_number: str
     status: str
     quote_number: str
-    po_number: str | None = None
     customer_name: str
     site_name: str
     item_count: int
@@ -76,8 +71,8 @@ class DeliveryChallanDetailOut(BaseModel):
     id: str
     dc_number: str
     status: str
+    customer_quote_id: str
     quote_number: str
-    po_number: str | None = None
     customer_name: str
     site_name: str
     vehicle_number: str | None

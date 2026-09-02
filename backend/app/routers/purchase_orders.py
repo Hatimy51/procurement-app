@@ -33,16 +33,37 @@ def _totals(line_items: list[models.PurchaseOrderLineItem]):
     return subtotal, total_gst, subtotal + total_gst, missing
 
 
+SPEND_APPROVAL_THRESHOLD = Decimal("100000.00")  # ₹1,00,000 threshold for Manager approval
+
+
+def _calc_receipt_pct(po: models.PurchaseOrder) -> float:
+    total_ordered = sum(float(li.quantity) for li in po.line_items) if po.line_items else 0.0
+    if total_ordered <= 0:
+        return 0.0
+    total_received = 0.0
+    for grn in po.goods_receipt_notes:
+        if grn.status == models.GRNStatus.received:
+            total_received += sum(float(li.quantity_received) for li in grn.line_items)
+    return round(min(100.0, (total_received / total_ordered) * 100.0), 1)
+
+
 def _detail_out(po: models.PurchaseOrder) -> PurchaseOrderDetailOut:
     subtotal, total_gst, grand_total, missing = _totals(po.line_items)
     return PurchaseOrderDetailOut(
         id=po.id,
         po_number=po.po_number,
         status=po.status.value if hasattr(po.status, "value") else po.status,
+        supplier_id=po.supplier_id,
         supplier_name=po.supplier.name if po.supplier else "Unknown supplier",
         supplier_email=po.supplier.email if po.supplier else None,
         supplier_phone=po.supplier.phone if po.supplier else None,
+        store_location_id=po.store_location_id,
+        store_location_name=po.store_location.name if po.store_location else None,
         customer_quote_number=po.customer_quote.quote_number if po.customer_quote else None,
+        approval_status=po.approval_status,
+        requires_manager_approval=po.requires_manager_approval or False,
+        receipt_pct=_calc_receipt_pct(po),
+        erp_payment_status=po.erp_payment_status or "pending",
         notes=po.notes,
         created_at=po.created_at,
         sent_at=po.sent_at,
@@ -70,6 +91,10 @@ def list_purchase_orders(db: Session = Depends(get_db)):
             po_number=po.po_number,
             status=po.status.value if hasattr(po.status, "value") else po.status,
             supplier_name=po.supplier.name if po.supplier else "Unknown supplier",
+            store_location_name=po.store_location.name if po.store_location else None,
+            approval_status=po.approval_status,
+            requires_manager_approval=po.requires_manager_approval or False,
+            receipt_pct=_calc_receipt_pct(po),
             item_count=len(po.line_items),
             grand_total=grand_total,
             created_at=po.created_at,
@@ -95,7 +120,9 @@ def create_purchase_order(payload: PurchaseOrderCreate, db: Session = Depends(ge
 
     po = models.PurchaseOrder(
         po_number="", supplier_id=supplier.id,
-        customer_quote_id=payload.customer_quote_id, notes=payload.notes,
+        customer_quote_id=payload.customer_quote_id,
+        store_location_id=payload.store_location_id,
+        notes=payload.notes,
         status=models.POStatus.draft,
     )
     db.add(po)
@@ -113,6 +140,12 @@ def create_purchase_order(payload: PurchaseOrderCreate, db: Session = Depends(ge
             gst_percent=item.gst_percent,
             unit_price=item.unit_price,
         ))
+
+    db.flush()
+    _, _, grand_total, _ = _totals(po.line_items)
+    if grand_total >= SPEND_APPROVAL_THRESHOLD:
+        po.requires_manager_approval = True
+        po.approval_status = "pending_approval"
 
     db.commit()
     db.refresh(po)
@@ -165,7 +198,7 @@ def update_purchase_order_draft(po_id: str, payload: PurchaseOrderDraftUpdate, d
 def mark_sent(po_id: str, db: Session = Depends(get_db)):
     """The manual 'send to supplier' step — same human-in-the-loop
     principle as Quotes. Blocked if any line is still missing a price,
-    since a supplier shouldn't receive an order with unagreed pricing.
+    or if the PO requires manager approval and hasn't been approved yet.
     Once sent, the PO is locked."""
     po = db.query(models.PurchaseOrder).filter(models.PurchaseOrder.id == po_id).first()
     if not po:
@@ -173,12 +206,42 @@ def mark_sent(po_id: str, db: Session = Depends(get_db)):
     if po.status != models.POStatus.draft:
         raise HTTPException(400, "Only draft purchase orders can be marked as sent.")
 
+    if po.requires_manager_approval and po.approval_status != "approved":
+        raise HTTPException(
+            400,
+            "This purchase order exceeds the ₹1,00,000 spend threshold and requires Manager approval before sending."
+        )
+
     missing = sum(1 for li in po.line_items if li.unit_price is None)
     if missing:
         raise HTTPException(400, f"{missing} item(s) still have no price. Fill those in before sending.")
 
     po.status = models.POStatus.sent
     po.sent_at = datetime.utcnow()
+    db.commit()
+    db.refresh(po)
+    return _detail_out(po)
+
+
+@router.post("/{po_id}/approve", response_model=PurchaseOrderDetailOut)
+def approve_purchase_order(po_id: str, db: Session = Depends(get_db)):
+    """Manager-only approval for high-value POs."""
+    po = db.query(models.PurchaseOrder).filter(models.PurchaseOrder.id == po_id).first()
+    if not po:
+        raise HTTPException(404, "Purchase order not found")
+    po.approval_status = "approved"
+    db.commit()
+    db.refresh(po)
+    return _detail_out(po)
+
+
+@router.post("/{po_id}/reject", response_model=PurchaseOrderDetailOut)
+def reject_purchase_order(po_id: str, db: Session = Depends(get_db)):
+    """Manager rejects a high-value PO."""
+    po = db.query(models.PurchaseOrder).filter(models.PurchaseOrder.id == po_id).first()
+    if not po:
+        raise HTTPException(404, "Purchase order not found")
+    po.approval_status = "rejected"
     db.commit()
     db.refresh(po)
     return _detail_out(po)
@@ -198,85 +261,87 @@ def delete_purchase_order(po_id: str, db: Session = Depends(get_db)):
     db.commit()
     return {"deleted": True, "id": po_id}
 
+@router.post("/{po_id}/create-grn")
 @router.post("/{po_id}/create-delivery-challan")
-def create_delivery_challan_from_po(po_id: str, db: Session = Depends(get_db)):
+def create_grn_from_po(po_id: str, db: Session = Depends(get_db)):
     """
-    Creates a draft Delivery Challan / GRN directly from a Purchase Order.
+    Creates a draft Goods Receipt Note (GRN) directly from a Purchase Order.
     All PO lines are pre-filled at their remaining outstanding quantity so
-    warehouse staff can edit the physical quantity received before dispatch.
+    warehouse staff can record the physical quantity received.
     """
     po = db.query(models.PurchaseOrder).filter(models.PurchaseOrder.id == po_id).first()
     if not po:
         raise HTTPException(status_code=404, detail=f"Purchase Order #{po_id} not found.")
 
-    existing_challan = (
-        db.query(models.DeliveryChallan)
+    existing_grn = (
+        db.query(models.GoodsReceiptNote)
         .filter(
-            models.DeliveryChallan.po_id == po.id,
-            models.DeliveryChallan.status == models.DCStatus.draft,
+            models.GoodsReceiptNote.po_id == po.id,
+            models.GoodsReceiptNote.status == models.GRNStatus.draft,
         )
         .first()
     )
-    if existing_challan:
+    if existing_grn:
         return {
-            "message": "A draft Delivery Challan already exists for this PO.",
-            "challan_id": existing_challan.id,
+            "message": "A draft GRN already exists for this PO.",
+            "grn_id": existing_grn.id,
+            "grn_number": existing_grn.grn_number,
+            "challan_id": existing_grn.id,
+            "dc_number": existing_grn.grn_number,
             "po_id": po.id,
-            "dc_number": existing_challan.dc_number,
+            "po_number": po.po_number,
         }
 
-    # Only outstanding quantities are prefilled. Prior dispatched GRNs are
-    # counted so the same PO cannot be received twice by mistake.
     from sqlalchemy import func
     received_by_line = {}
     rows = (
         db.query(
-            models.DeliveryChallanLineItem.po_line_item_id,
-            func.coalesce(func.sum(models.DeliveryChallanLineItem.quantity_delivered), 0),
+            models.GoodsReceiptNoteLineItem.po_line_item_id,
+            func.coalesce(func.sum(models.GoodsReceiptNoteLineItem.quantity_received), 0),
         )
-        .join(models.DeliveryChallan)
+        .join(models.GoodsReceiptNote)
         .filter(
-            models.DeliveryChallan.po_id == po.id,
-            models.DeliveryChallan.status == models.DCStatus.dispatched,
+            models.GoodsReceiptNote.po_id == po.id,
+            models.GoodsReceiptNote.status == models.GRNStatus.received,
         )
-        .group_by(models.DeliveryChallanLineItem.po_line_item_id)
+        .group_by(models.GoodsReceiptNoteLineItem.po_line_item_id)
         .all()
     )
     for line_id, received in rows:
         received_by_line[line_id] = Decimal(received or 0)
 
-    new_challan = models.DeliveryChallan(
+    new_grn = models.GoodsReceiptNote(
         po_id=po.id,
-        customer_quote_id=None,
-        dc_number="",
-        status=models.DCStatus.draft,
-        notes=f"GRN / Delivery Challan against {po.po_number}",
+        grn_number="",
+        status=models.GRNStatus.draft,
+        notes=f"GRN against {po.po_number}",
     )
-    db.add(new_challan)
+    db.add(new_grn)
     db.flush()
-    new_challan.dc_number = _po_number(new_challan.id).replace("PO-", "DC-")
+    new_grn.grn_number = f"GRN-{new_grn.id.replace('-', '')[:8].upper()}"
 
     for item in po.line_items:
         outstanding = item.quantity - received_by_line.get(item.id, Decimal(0))
         if outstanding <= 0:
             continue
-        db.add(models.DeliveryChallanLineItem(
-            dc_id=new_challan.id,
-            quote_line_item_id=None,
+        db.add(models.GoodsReceiptNoteLineItem(
+            grn_id=new_grn.id,
             po_line_item_id=item.id,
             description=item.description,
             spec=item.spec,
             unit=item.unit,
-            quantity_delivered=outstanding,
+            quantity_received=outstanding,
         ))
 
     db.commit()
-    db.refresh(new_challan)
+    db.refresh(new_grn)
 
     return {
-        "message": "Delivery Challan (GRN) created successfully.",
-        "challan_id": new_challan.id,
-        "dc_number": new_challan.dc_number,
+        "message": "Goods Receipt Note (GRN) created successfully.",
+        "grn_id": new_grn.id,
+        "grn_number": new_grn.grn_number,
+        "challan_id": new_grn.id,
+        "dc_number": new_grn.grn_number,
         "po_id": po.id,
         "po_number": po.po_number,
         "items": [
@@ -287,9 +352,9 @@ def create_delivery_challan_from_po(po_id: str, db: Session = Depends(get_db)):
                     (po_line.quantity for po_line in po.line_items if po_line.id == item.po_line_item_id),
                     0,
                 ),
-                "received_quantity": item.quantity_delivered,
+                "received_quantity": item.quantity_received,
                 "unit": item.unit,
             }
-            for item in new_challan.line_items
+            for item in new_grn.line_items
         ],
     }

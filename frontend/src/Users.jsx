@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { api } from './api'
 import PageHeader from './PageHeader'
 
-const ROLE_LABEL = { purchase: 'Purchase', accounts: 'Accounts', manager: 'Manager' }
+const ROLE_LABEL = { purchase: 'Purchase', accounts: 'Accounts', manager: 'Manager', admin: 'Admin', store: 'Store' }
 
 export default function Users() {
   const [users, setUsers] = useState([])
@@ -52,7 +52,7 @@ export default function Users() {
       <PageHeader
         eyebrow="Administration"
         title="Users"
-        description="Who has a login, and what role they have — Purchase, Accounts, or Manager."
+        description="Manage user accounts and assign roles: Admin, Manager, Purchase, Accounts, or Store."
         action={<button className="btn btn-primary" onClick={() => setFormOpen(!formOpen)}>+ Add User</button>}
       />
 
@@ -79,7 +79,9 @@ export default function Users() {
               <select style={{ width: '100%' }} value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
                 <option value="purchase">Purchase</option>
                 <option value="accounts">Accounts</option>
-                <option value="manager">Manager</option>
+                <option value="manager">Manager (Full Access)</option>
+                <option value="admin">Admin (User Mgmt Only)</option>
+                <option value="store">Store (Receiving Queue)</option>
               </select>
             </div>
           </div>

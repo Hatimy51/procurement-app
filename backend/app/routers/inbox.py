@@ -68,12 +68,15 @@ def oauth_callback(code: str | None = None, error: str | None = None, db: Sessio
     except Exception as e:
         return RedirectResponse(f"{FRONTEND_ORIGIN}/?inbox_error={urllib_quote(str(e))}")
 
+    from app.encryption import encrypt_token
+
     # Only one connection at a time — replace whatever was there before.
     db.query(models.GmailConnection).delete()
+    raw_refresh = tokens.get("refresh_token", "")
     conn = models.GmailConnection(
         email_address=profile.get("emailAddress", "unknown"),
-        access_token=tokens["access_token"],
-        refresh_token=tokens.get("refresh_token", ""),
+        access_token=encrypt_token(tokens["access_token"]),
+        refresh_token=encrypt_token(raw_refresh) if raw_refresh else "",
         token_expiry=datetime.utcnow(),  # forces a refresh check on first use; expires_in applied below
     )
     from datetime import timedelta

@@ -13,6 +13,7 @@ class SupplierCreate(BaseModel):
     name: str
     email: str | None = None
     phone: str | None = None
+    gst_number: str | None = None
     linked_product_ids: list[str] = []
     linked_categories: list[str] = []
 
@@ -33,6 +34,7 @@ def _supplier_out(db: Session, supplier: models.Supplier):
         "name": supplier.name,
         "email": supplier.email,
         "phone": supplier.phone,
+        "gst_number": supplier.gst_number,
         "linked_product_ids": [link.product_id for link in product_links],
         "linked_categories": [link.category for link in category_links],
     }
@@ -44,9 +46,60 @@ def list_suppliers(db: Session = Depends(get_db)):
     return [_supplier_out(db, s) for s in suppliers]
 
 
+@router.get("/{supplier_id}/ledger")
+def get_supplier_ledger(supplier_id: str, db: Session = Depends(get_db)):
+    """Returns all purchase orders and payment/delivery ledger for a supplier."""
+    supplier = db.query(models.Supplier).filter(models.Supplier.id == supplier_id).first()
+    if not supplier:
+        raise HTTPException(404, "Supplier not found")
+
+    pos = (
+        db.query(models.PurchaseOrder)
+        .filter(models.PurchaseOrder.supplier_id == supplier_id)
+        .order_by(models.PurchaseOrder.created_at.desc())
+        .all()
+    )
+
+    ledger_items = []
+    for po in pos:
+        total_ordered = sum(float(li.quantity) for li in po.line_items) if po.line_items else 0.0
+        total_received = 0.0
+        for grn in po.goods_receipt_notes:
+            if grn.status == models.GRNStatus.received:
+                total_received += sum(float(li.quantity_received) for li in grn.line_items)
+
+        total_value = sum(
+            float((li.unit_price or 0) * li.quantity * (1 + (li.gst_percent or 0) / 100))
+            for li in po.line_items
+        )
+
+        docs = db.query(models.VendorPortalDocument).filter(
+            models.VendorPortalDocument.po_id == po.id
+        ).all()
+
+        ledger_items.append({
+            "po_id": po.id,
+            "po_number": po.po_number,
+            "status": po.status.value,
+            "created_at": po.created_at,
+            "total_value": round(total_value, 2),
+            "store_location": po.store_location.name if po.store_location else None,
+            "receipt_pct": round(min(100.0, (total_received / total_ordered * 100.0)), 1) if total_ordered > 0 else 0.0,
+            "erp_payment_status": po.erp_payment_status or "pending",
+            "document_count": len(docs),
+        })
+
+    return {"supplier_id": supplier.id, "supplier_name": supplier.name, "orders": ledger_items}
+
+
 @router.post("")
 def create_supplier(payload: SupplierCreate, db: Session = Depends(get_db)):
-    supplier = models.Supplier(name=payload.name, email=payload.email, phone=payload.phone)
+    supplier = models.Supplier(
+        name=payload.name,
+        email=payload.email,
+        phone=payload.phone,
+        gst_number=payload.gst_number,
+    )
     db.add(supplier)
     db.flush()  # get supplier.id before creating links
     replace_supplier_links(db, supplier.id, payload.linked_product_ids, payload.linked_categories)
@@ -63,6 +116,7 @@ def update_supplier(supplier_id: str, payload: SupplierCreate, db: Session = Dep
     supplier.name = payload.name
     supplier.email = payload.email
     supplier.phone = payload.phone
+    supplier.gst_number = payload.gst_number
     replace_supplier_links(db, supplier_id, payload.linked_product_ids, payload.linked_categories)
     db.commit()
     db.refresh(supplier)

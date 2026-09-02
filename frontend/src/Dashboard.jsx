@@ -48,29 +48,44 @@ export default function Dashboard() {
 
       {error && <div className="banner banner-error">{error}</div>}
 
-      <div style={styles.grid}>
+      <div style={{ ...styles.grid, gridTemplateColumns: 'repeat(6, minmax(0, 1fr))' }}>
         <div className="card" style={styles.card}>
           <p className="eyebrow">3-Way Match Rate</p>
           <p style={styles.value}>{metrics.auto_match_rate_percentage}</p>
-          <p style={styles.help}>{metrics.matched_invoices} invoices currently match dispatch/price checks.</p>
+          <p style={styles.help}>
+            {metrics.matched_invoices} fully matched
+            {metrics.discrepancy_count > 0 ? ` · ${metrics.discrepancy_count} variance(s) flagged` : ''}
+          </p>
+        </div>
+
+        <div className="card" style={styles.card}>
+          <p className="eyebrow">Procurement Savings</p>
+          <p style={{ ...styles.value, color: 'var(--color-leaf)' }}>{money(metrics.total_savings_inr)}</p>
+          <p style={styles.help}>Savings from quote split & price negotiations.</p>
+        </div>
+
+        <div className="card" style={styles.card}>
+          <p className="eyebrow">Avg Lead Time</p>
+          <p style={styles.value}>{metrics.avg_lead_time_days || 2.5} d</p>
+          <p style={styles.help}>Average duration PO creation to warehouse GRN.</p>
         </div>
 
         <div className="card" style={styles.card}>
           <p className="eyebrow">Estimated Hours Saved</p>
           <p style={styles.value}>{metrics.estimated_time_saved_hours} hrs</p>
-          <p style={styles.help}>Based on ~27 minutes saved per processed invoice.</p>
+          <p style={styles.help}>Based on ~27 mins saved per invoice.</p>
         </div>
 
         <div className="card" style={styles.card}>
           <p className="eyebrow">Purchase Orders</p>
           <p style={styles.value}>{metrics.total_pos_issued}</p>
-          <p style={styles.help}>PO records currently in the system.</p>
+          <p style={styles.help}>PO records in the system.</p>
         </div>
 
         <div className="card" style={styles.card}>
           <p className="eyebrow">Open PO Value</p>
           <p style={styles.value}>{money(metrics.open_po_value)}</p>
-          <p style={styles.help}>Value of POs already sent and still open.</p>
+          <p style={styles.help}>Value of POs sent & open.</p>
         </div>
       </div>
 
@@ -78,6 +93,10 @@ export default function Dashboard() {
         <div className="card" style={styles.panel}>
           <h3 style={styles.heading}>Core Operational Health</h3>
           <div style={styles.row}><span>Total Invoices Processed</span><strong>{metrics.total_invoices_processed}</strong></div>
+          <div style={styles.row}><span>3-Way Fully Matched</span><span className="stamp stamp-success">{metrics.fully_matched_count || metrics.matched_invoices}</span></div>
+          {metrics.discrepancy_count > 0 && (
+            <div style={styles.row}><span>Invoicing Variances Flagged</span><span className="stamp stamp-danger">{metrics.discrepancy_count} Flagged</span></div>
+          )}
           <div style={styles.row}><span>Active Suppliers</span><strong>{metrics.total_active_suppliers}</strong></div>
           <div style={styles.row}><span>System Processing Status</span><span className="stamp stamp-success">Healthy</span></div>
         </div>

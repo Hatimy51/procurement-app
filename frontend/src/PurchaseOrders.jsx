@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { api } from './api'
 import PageHeader from './PageHeader'
 import SyncToERPButton from './SyncToERPButton'
+import { useAuth } from './AuthContext'
 
 const STATUS_LABEL = { draft: 'Draft', sent: 'Sent' }
 const STATUS_STAMP = { draft: 'stamp-neutral', sent: 'stamp-success' }
@@ -14,11 +15,37 @@ function StatusBadge({ status }) {
   )
 }
 
+function LifecycleProgressBar({ po }) {
+  const isSent = po.status === 'sent'
+  const receiptPct = po.receipt_pct || 0
+  const isReceived = receiptPct >= 100
+  const isPartial = receiptPct > 0 && receiptPct < 100
+  const paymentStatus = po.erp_payment_status || 'pending'
+  const isPaid = paymentStatus === 'paid'
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 4, margin: '8px 0', fontSize: 11, fontWeight: 600 }}>
+      <span style={{ padding: '3px 8px', borderRadius: 4, background: isSent ? '#dbeafe' : '#f3f4f6', color: isSent ? '#1e40af' : '#9ca3af' }}>
+        {isSent ? '✓ PO Sent' : 'Draft'}
+      </span>
+      <span>→</span>
+      <span style={{ padding: '3px 8px', borderRadius: 4, background: isReceived ? '#dcfce7' : isPartial ? '#fef9c3' : '#f3f4f6', color: isReceived ? '#15803d' : isPartial ? '#854d0e' : '#9ca3af' }}>
+        {isReceived ? '✓ Goods Received (100%)' : isPartial ? `Receiving (${receiptPct}%)` : 'Goods Pending'}
+      </span>
+      <span>→</span>
+      <span style={{ padding: '3px 8px', borderRadius: 4, background: isPaid ? '#dcfce7' : '#f3f4f6', color: isPaid ? '#15803d' : '#9ca3af' }}>
+        {isPaid ? '✓ Paid' : `Payment: ${paymentStatus}`}
+      </span>
+    </div>
+  )
+}
+
 function emptyManualLine() {
   return { key: crypto.randomUUID(), product_id: null, description: '', spec: '', quantity: '', unit: '', unit_price: '', gst_percent: '' }
 }
 
 export default function PurchaseOrders() {
+  const { user } = useAuth()
   const [view, setView] = useState('list') // 'list' | 'create' | 'detail'
   const [pos, setPos] = useState([])
   const [loading, setLoading] = useState(true)
@@ -35,10 +62,15 @@ export default function PurchaseOrders() {
   const [productResults, setProductResults] = useState([])
   const [lines, setLines] = useState([])
   const [creating, setCreating] = useState(false)
+  const [storeLocations, setStoreLocations] = useState([])
+  const [storeSearch, setStoreSearch] = useState('')
+  const [selectedStoreId, setSelectedStoreId] = useState('')
+  const [storeDropdownOpen, setStoreDropdownOpen] = useState(false)
 
   // ---- Detail state ----
   const [selectedId, setSelectedId] = useState(null)
   const [detail, setDetail] = useState(null)
+  const [poDocs, setPoDocs] = useState([])
   const [notesDraft, setNotesDraft] = useState('')
   const [priceDrafts, setPriceDrafts] = useState({})
   const [saving, setSaving] = useState(false)
@@ -76,12 +108,19 @@ export default function PurchaseOrders() {
     setLinkedQuoteId('')
     setCreateNotes('')
     setProductSearch('')
+    setStoreSearch('')
+    setSelectedStoreId('')
     setLines([])
     setView('create')
     try {
-      const [s, q] = await Promise.all([api.listSuppliers(), api.listCustomerQuotes()])
+      const [s, q, sl] = await Promise.all([
+        api.listSuppliers(),
+        api.listCustomerQuotes(),
+        api.listStoreLocations(),
+      ])
       setSuppliers(s)
       setQuotesForLink(q)
+      setStoreLocations(sl)
       setProductResults(await api.listProducts(''))
     } catch (e) {
       setError(e.message)
@@ -117,9 +156,9 @@ export default function PurchaseOrders() {
     setLines((ls) => ls.filter((l) => l.key !== key))
   }
 
-  function toPayloadItems(lineArray) {
-    return lineArray.map((l) => ({
-      product_id: l.product_id || null,
+  function toPayloadItems(ls) {
+    return ls.map((l) => ({
+      product_id: l.product_id,
       description: l.description,
       spec: l.spec || null,
       quantity: l.quantity === '' ? 0 : l.quantity,
@@ -142,6 +181,7 @@ export default function PurchaseOrders() {
       const po = await api.createPurchaseOrder({
         supplier_id: supplierId,
         customer_quote_id: linkedQuoteId || null,
+        store_location_id: selectedStoreId || null,
         notes: createNotes || null,
         items: toPayloadItems(lines),
       })
@@ -159,8 +199,12 @@ export default function PurchaseOrders() {
     setView('detail')
     setError(null)
     try {
-      const data = await api.getPurchaseOrderDetail(id)
+      const [data, docs] = await Promise.all([
+        api.getPurchaseOrderDetail(id),
+        api.getPODocuments(id).catch(() => []),
+      ])
       setDetail(data)
+      setPoDocs(docs)
       setNotesDraft(data.notes || '')
       const drafts = {}
       data.items.forEach((i) => { drafts[i.id] = i.unit_price ?? '' })
@@ -171,8 +215,12 @@ export default function PurchaseOrders() {
   }
 
   async function refreshDetail() {
-    const data = await api.getPurchaseOrderDetail(selectedId)
+    const [data, docs] = await Promise.all([
+      api.getPurchaseOrderDetail(selectedId),
+      api.getPODocuments(selectedId).catch(() => []),
+    ])
     setDetail(data)
+    setPoDocs(docs)
     const drafts = {}
     data.items.forEach((i) => { drafts[i.id] = i.unit_price ?? '' })
     setPriceDrafts(drafts)
@@ -213,17 +261,45 @@ export default function PurchaseOrders() {
     }
   }
 
+  async function handleApprove() {
+    if (!window.confirm('Approve this high-value Purchase Order?')) return
+    setError(null)
+    try {
+      await api.approvePurchaseOrder(selectedId)
+      setInfoMessage('Purchase Order approved.')
+      await refreshDetail()
+    } catch (e) {
+      setError(e.message)
+    }
+  }
+
+  async function handleReject() {
+    if (!window.confirm('Reject this Purchase Order?')) return
+    setError(null)
+    try {
+      await api.rejectPurchaseOrder(selectedId)
+      setInfoMessage('Purchase Order rejected.')
+      await refreshDetail()
+    } catch (e) {
+      setError(e.message)
+    }
+  }
+
   async function handleCreateGRN() {
     setError(null)
     try {
       const result = await api.createDeliveryChallanFromPurchaseOrder(selectedId)
       setInfoMessage(
-        result.dc_number
-          ? `${result.message || 'GRN / Delivery Challan created.'} ${result.dc_number}`
-          : (result.message || 'GRN / Delivery Challan created.')
+        result.grn_number
+          ? `GRN created: ${result.grn_number}`
+          : (result.message || 'GRN created.')
       )
     } catch (e) {
-      setError(e.message)
+      if (e.existing_id) {
+        setError({ message: e.message, existing_id: e.existing_id, existing_number: e.existing_number, document_type: e.document_type })
+      } else {
+        setError(e.message)
+      }
     }
   }
 
@@ -260,7 +336,25 @@ export default function PurchaseOrders() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
           <h2 style={{ margin: 0, fontFamily: 'var(--font-mono)', color: 'var(--color-ink)' }}>{detail.po_number}</h2>
           <StatusBadge status={detail.status} />
+          {detail.store_location_name && (
+            <span style={{ fontSize: 11, padding: '3px 8px', borderRadius: 12, background: '#ede9fe', color: '#7c3aed', fontWeight: 600 }}>
+              📍 {detail.store_location_name}
+            </span>
+          )}
+          {detail.requires_manager_approval && (
+            <span style={{
+              fontSize: 11, padding: '3px 8px', borderRadius: 12, fontWeight: 700,
+              background: detail.approval_status === 'approved' ? '#dcfce7' : detail.approval_status === 'rejected' ? '#fee2e2' : '#fef3c7',
+              color: detail.approval_status === 'approved' ? '#15803d' : detail.approval_status === 'rejected' ? '#b91c1c' : '#b45309',
+            }}>
+              {detail.approval_status === 'approved' ? '✓ Manager Approved' : detail.approval_status === 'rejected' ? '✕ Manager Rejected' : '⏳ Pending Spend Approval (>₹1L)'}
+            </span>
+          )}
         </div>
+
+        {/* 360° Lifecycle Progress Bar */}
+        <LifecycleProgressBar po={detail} />
+
         <p style={styles.muted}>
           To: {detail.supplier_name} {detail.supplier_email ? `· ${detail.supplier_email}` : ''} {detail.supplier_phone ? `· ${detail.supplier_phone}` : ''}
         </p>
@@ -270,7 +364,39 @@ export default function PurchaseOrders() {
           {detail.sent_at && <> · Sent {new Date(detail.sent_at).toLocaleString()}</>}
         </p>
 
-        {error && <div className="banner banner-error no-print">{error}</div>}
+        {/* Vendor Uploaded Documents Section */}
+        {poDocs && poDocs.length > 0 && (
+          <div style={{ background: '#f8faff', border: '1px solid #c7d2fe', borderRadius: 6, padding: '10px 14px', margin: '10px 0' }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: '#3730a3', textTransform: 'uppercase' }}>Vendor Uploaded Documents ({poDocs.length})</span>
+            <div style={{ display: 'flex', gap: 10, marginTop: 6, flexWrap: 'wrap' }}>
+              {poDocs.map((d) => (
+                <a
+                  key={d.id}
+                  href={d.download_url}
+                  download
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', background: '#fff', border: '1px solid #c7d2fe', borderRadius: 4, fontSize: 12, textDecoration: 'none', color: '#1e40af', fontWeight: 600 }}
+                >
+                  📄 {d.document_type === 'delivery_challan' ? 'Challan: ' : d.document_type === 'invoice' ? 'Invoice: ' : ''}{d.file_name}
+                </a>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {error && (
+          <div className="banner banner-error no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+            <span>{typeof error === 'object' ? error.message : error}</span>
+            {typeof error === 'object' && error.existing_id && (
+              <a
+                href={`/grns/${error.existing_id}`}
+                className="btn btn-sm btn-primary"
+                style={{ padding: '4px 10px', fontSize: '12px', textDecoration: 'none' }}
+              >
+                Jump to Draft #{error.existing_number || ''} →
+              </a>
+            )}
+          </div>
+        )}
         {infoMessage && <div className="banner banner-info no-print">{infoMessage}</div>}
         {isDraft && detail.items_price_missing > 0 && (
           <div className="banner banner-warning">
@@ -333,6 +459,16 @@ export default function PurchaseOrders() {
               Create GRN / Delivery Challan
             </button>
           )}
+          {detail.requires_manager_approval && detail.approval_status === 'pending_approval' && user?.role === 'manager' && (
+            <div style={{ display: 'inline-flex', gap: 8 }}>
+              <button className="btn btn-success" onClick={handleApprove}>
+                ✓ Approve Spend (&gt;₹1L)
+              </button>
+              <button className="btn btn-danger" style={{ background: '#ef4444', color: '#fff', border: 'none' }} onClick={handleReject}>
+                ✕ Reject Spend
+              </button>
+            </div>
+          )}
           {isDraft ? (
             <>
               <button className="btn btn-primary" onClick={handleSaveDraft} disabled={saving}>
@@ -341,8 +477,14 @@ export default function PurchaseOrders() {
               <button
                 className="btn btn-success"
                 onClick={handleMarkSent}
-                disabled={detail.items_price_missing > 0}
-                title={detail.items_price_missing > 0 ? 'Every item needs a price before sending' : ''}
+                disabled={detail.items_price_missing > 0 || (detail.requires_manager_approval && detail.approval_status !== 'approved')}
+                title={
+                  detail.items_price_missing > 0
+                    ? 'Every item needs a price before sending'
+                    : detail.requires_manager_approval && detail.approval_status !== 'approved'
+                    ? 'Requires Manager spend approval before sending'
+                    : ''
+                }
               >
                 Mark as Sent
               </button>
@@ -369,7 +511,7 @@ export default function PurchaseOrders() {
         {error && <div className="banner banner-error">{error}</div>}
 
         <div className="card" style={{ padding: 18, marginBottom: 16 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
             <div>
               <label className="eyebrow">Supplier</label>
               <select style={{ width: '100%' }} value={supplierId} onChange={(e) => setSupplierId(e.target.value)}>
@@ -378,13 +520,71 @@ export default function PurchaseOrders() {
               </select>
             </div>
             <div>
-              <label className="eyebrow">Link to a customer quote (optional)</label>
+              <label className="eyebrow">Link to customer quote</label>
               <select style={{ width: '100%' }} value={linkedQuoteId} onChange={(e) => setLinkedQuoteId(e.target.value)}>
-                <option value="">Not linked to a specific quote</option>
+                <option value="">Not linked to a quote</option>
                 {quotesForLink.map((q) => (
                   <option key={q.id} value={q.id}>{q.quote_number} — {q.customer_name}</option>
                 ))}
               </select>
+            </div>
+            <div style={{ position: 'relative' }}>
+              <label className="eyebrow">Delivery Store / Site</label>
+              <input
+                style={{ width: '100%' }}
+                placeholder="Type store name…"
+                value={storeSearch}
+                onChange={(e) => {
+                  setStoreSearch(e.target.value)
+                  setSelectedStoreId('')
+                  setStoreDropdownOpen(true)
+                }}
+                onFocus={() => setStoreDropdownOpen(true)}
+              />
+              {storeDropdownOpen && (
+                <div style={{
+                  position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100,
+                  background: '#fff', border: '1px solid var(--color-line)', borderRadius: 4,
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.1)', maxHeight: 200, overflowY: 'auto',
+                }}>
+                  {storeSearch.trim() && !storeLocations.some((sl) => sl.name.toLowerCase() === storeSearch.trim().toLowerCase()) && (
+                    <div
+                      style={{ padding: '8px 12px', background: '#eff6ff', color: '#1d4ed8', fontWeight: 600, cursor: 'pointer', borderBottom: '1px solid #dbeafe', fontSize: 13 }}
+                      onClick={async () => {
+                        try {
+                          const newLoc = await api.createStoreLocation({ name: storeSearch.trim() })
+                          setStoreLocations((prev) => [newLoc, ...prev])
+                          setSelectedStoreId(newLoc.id)
+                          setStoreSearch(newLoc.name)
+                          setStoreDropdownOpen(false)
+                        } catch (err) {
+                          setError(err.message)
+                        }
+                      }}
+                    >
+                      + Create: &ldquo;{storeSearch.trim()}&rdquo;
+                    </div>
+                  )}
+                  {storeLocations
+                    .filter((sl) => !storeSearch.trim() || sl.name.toLowerCase().includes(storeSearch.trim().toLowerCase()))
+                    .map((sl) => (
+                      <div
+                        key={sl.id}
+                        style={{ padding: '8px 12px', cursor: 'pointer', fontSize: 13, borderBottom: '1px solid #f3f4f6' }}
+                        onClick={() => {
+                          setSelectedStoreId(sl.id)
+                          setStoreSearch(sl.name)
+                          setStoreDropdownOpen(false)
+                        }}
+                      >
+                        📍 {sl.name} {sl.area ? `(${sl.area})` : ''}
+                      </div>
+                    ))}
+                  {storeLocations.filter((sl) => !storeSearch.trim() || sl.name.toLowerCase().includes(storeSearch.trim().toLowerCase())).length === 0 && !storeSearch.trim() && (
+                    <div style={{ padding: '8px 12px', color: '#9ca3af', fontSize: 13 }}>No stores created yet. Type name to create.</div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -478,7 +678,20 @@ export default function PurchaseOrders() {
         action={<button className="btn btn-primary" onClick={openCreate}>+ New Purchase Order</button>}
       />
 
-      {error && <div className="banner banner-error">{error}</div>}
+      {error && (
+        <div className="banner banner-error" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+          <span>{typeof error === 'object' ? error.message : error}</span>
+          {typeof error === 'object' && error.existing_id && (
+            <a
+              href={`/grns/${error.existing_id}`}
+              className="btn btn-sm btn-primary"
+              style={{ padding: '4px 10px', fontSize: '12px', textDecoration: 'none' }}
+            >
+              Jump to Draft #{error.existing_number || ''} →
+            </a>
+          )}
+        </div>
+      )}
       {infoMessage && <div className="banner banner-info">{infoMessage}</div>}
 
       {loading ? (
@@ -488,14 +701,49 @@ export default function PurchaseOrders() {
       ) : (
         <table className="ledger-table">
           <thead>
-            <tr><th>PO #</th><th>Supplier</th><th>Status</th><th>Total</th><th>Created</th><th></th></tr>
+            <tr><th>PO #</th><th>Supplier</th><th>Store / Site</th><th>Status</th><th>Lifecycle</th><th>Total</th><th>Created</th><th></th></tr>
           </thead>
           <tbody>
             {pos.map((po) => (
               <tr key={po.id}>
                 <td className="num">{po.po_number}</td>
                 <td>{po.supplier_name}</td>
-                <td><StatusBadge status={po.status} /></td>
+                <td>
+                  {po.store_location_name ? (
+                    <span style={{ fontSize: 11, padding: '2px 6px', borderRadius: 4, background: '#ede9fe', color: '#7c3aed', fontWeight: 600 }}>
+                      📍 {po.store_location_name}
+                    </span>
+                  ) : '—'}
+                </td>
+                <td>
+                  <StatusBadge status={po.status} />
+                  {po.requires_manager_approval && (
+                    <div style={{ marginTop: 2 }}>
+                      <span style={{
+                        fontSize: 10, padding: '2px 5px', borderRadius: 4, fontWeight: 700,
+                        background: po.approval_status === 'approved' ? '#dcfce7' : po.approval_status === 'rejected' ? '#fee2e2' : '#fef3c7',
+                        color: po.approval_status === 'approved' ? '#15803d' : po.approval_status === 'rejected' ? '#b91c1c' : '#b45309',
+                      }}>
+                        {po.approval_status === 'approved' ? '✓ Approved' : po.approval_status === 'rejected' ? '✕ Rejected' : '⏳ >₹1L Approval'}
+                      </span>
+                    </div>
+                  )}
+                </td>
+                <td>
+                  <div style={{ fontSize: 11 }}>
+                    {po.status === 'sent' ? (
+                      po.receipt_pct >= 100 ? (
+                        <span style={{ color: '#15803d', fontWeight: 600 }}>✓ Recv 100%</span>
+                      ) : po.receipt_pct > 0 ? (
+                        <span style={{ color: '#b45309', fontWeight: 600 }}>Recv {po.receipt_pct}%</span>
+                      ) : (
+                        <span style={{ color: '#6b7280' }}>Pending Delivery</span>
+                      )
+                    ) : (
+                      <span style={{ color: '#9ca3af' }}>Draft</span>
+                    )}
+                  </div>
+                </td>
                 <td className="num">{money(po.grand_total)}</td>
                 <td>{new Date(po.created_at).toLocaleString()}</td>
                 <td><button className="btn-link" onClick={() => openDetail(po.id)}>View</button></td>

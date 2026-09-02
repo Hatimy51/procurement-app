@@ -1,11 +1,12 @@
 """
 Authentication + role-based access control.
 
-Roles and what each can do (agreed with the client):
-  - purchase: every screen EXCEPT Invoices — full read/write there.
-  - accounts: Invoices only — full read/write there, nothing else.
-  - manager:  can VIEW every screen (oversight), but the only write action
-              granted anywhere is approving a Customer Quote.
+Roles and what each can do:
+  - purchase: procurement screens (POs, Suppliers, RFQs, Quotes, Inbox, GRNs) — full read/write.
+  - accounts: financial screens (Invoices, ERP Sync) — full read/write.
+  - manager:  full portal access — all screens, all write actions. Oversight + approvals.
+  - admin:    user/account management ONLY — can create/delete users, nothing else.
+  - store:    GRN entry queue filtered to their assigned store location only.
 
 Sessions are simple and don't expire — this runs on one trusted local
 machine, not the open internet. A session lasts until logout.
@@ -19,6 +20,12 @@ from app.database import get_db
 from app import models
 
 SESSION_COOKIE_NAME = "session_token"
+
+# Roles with full portal read access (can view all screens)
+FULL_READ_ROLES = {"purchase", "accounts", "manager"}
+
+# The universal super-role — can do everything any other role can
+SUPER_ROLE = "manager"
 
 
 def hash_password(password: str) -> str:
@@ -43,7 +50,7 @@ def set_session_cookie(response: Response, token: str):
     response.set_cookie(
         key=SESSION_COOKIE_NAME, value=token,
         httponly=True, samesite="lax",
-        max_age=60 * 60 * 24 * 30,  # 30 days — just caps an abandoned cookie, not a real expiry policy
+        max_age=60 * 60 * 24 * 30,  # 30 days
     )
 
 
@@ -61,40 +68,53 @@ def get_current_user(request: Request, db: DBSession = Depends(get_db)) -> model
     return session.user
 
 
-def require_manager(user: models.User = Depends(get_current_user)) -> models.User:
-    if user.role != models.UserRole.manager:
-        raise HTTPException(403, "Only a Manager can do this.")
+def require_admin(user: models.User = Depends(get_current_user)) -> models.User:
+    """Only admin (and manager as super-role) can manage user accounts."""
+    if user.role not in (models.UserRole.admin, models.UserRole.manager):
+        raise HTTPException(403, "Only an Admin can manage user accounts.")
     return user
+
+
+# Kept for backward compatibility — now admin role manages users
+require_manager = require_admin
 
 
 def require_router_access(owner_role: str):
     """
     Applied once per router in main.py — e.g.
     `app.include_router(enquiries.router, dependencies=[Depends(require_router_access("purchase"))])`.
-    Handles the two access shapes every screen in this app needs, without
-    editing every individual endpoint:
-      - GET (viewing): allowed for the owning role AND for Manager
-        (oversight — Manager can look at everything).
-      - Anything else (creating/editing/deleting): allowed ONLY for the
-        owning role.
 
-    One deliberate carve-out: a request to a path ending in "/approve" is
-    reserved for Manager alone, regardless of the router's owning role —
-    this is how Customer Quote approval stays Manager-only even though the
-    rest of that router (drafting, sending) belongs to Purchase.
+    Access rules:
+      - GET (viewing): allowed for the owning role AND for manager.
+      - Anything else (creating/editing/deleting): allowed for the owning role AND manager.
+      - Paths ending in "/approve": manager only (for Customer Quote approval).
+      - admin role: blocked from ALL procurement routers — user management screen only.
+      - store role: blocked from ALL routers except GRN router (handled separately).
     """
     def dependency(request: Request, user: models.User = Depends(get_current_user)) -> models.User:
+        role = user.role.value
+
+        # admin and store have no access to any procurement router
+        if role == "admin":
+            raise HTTPException(403, "Admin accounts can only access user management.")
+        if role == "store":
+            # store users are only allowed to access GRN endpoints (enforced in grns router)
+            raise HTTPException(403, "Store accounts can only access the GRN receiving queue.")
+
+        # approve endpoints: manager only
         if request.url.path.endswith("/approve"):
-            if user.role != models.UserRole.manager:
+            if role != SUPER_ROLE:
                 raise HTTPException(403, "Only a Manager can approve a quote.")
             return user
 
-        if request.method == "GET":
-            if user.role.value not in (owner_role, "manager"):
-                raise HTTPException(403, "You don't have access to this screen.")
-        else:
-            if user.role.value != owner_role:
-                raise HTTPException(403, "You don't have permission to make changes here.")
+        # manager can do everything
+        if role == SUPER_ROLE:
+            return user
+
+        # owning role check
+        if role != owner_role:
+            raise HTTPException(403, "You don't have access to this screen.")
+
         return user
 
     return dependency

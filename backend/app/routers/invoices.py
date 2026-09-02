@@ -107,6 +107,10 @@ def _detail_out(invoice: models.Invoice) -> InvoiceDetailOut:
         ],
         subtotal=subtotal, total_gst=total_gst, grand_total=grand_total,
         items_price_missing=missing,
+        erp_external_id=invoice.erp_external_id,
+        erp_sync_status=invoice.erp_sync_status,
+        erp_payment_status=invoice.erp_payment_status,
+        erp_synced_at=invoice.erp_synced_at,
     )
 
 
@@ -194,6 +198,41 @@ def create_invoice(payload: InvoiceCreate, db: Session = Depends(get_db)):
         raise HTTPException(404, "Quote not found")
     if quote.status not in ELIGIBLE_QUOTE_STATUSES:
         raise HTTPException(400, "Only approved or sent quotes can be invoiced.")
+
+    # Idempotency check: prevent duplicate draft invoices on the same quote
+    existing_draft = (
+        db.query(models.Invoice)
+        .filter(
+            models.Invoice.customer_quote_id == quote.id,
+            models.Invoice.status == models.InvoiceStatus.draft,
+        )
+        .first()
+    )
+    if existing_draft:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": f"A draft Invoice (#{existing_draft.invoice_number}) is already open for this Quote.",
+                "error_code": "DRAFT_ALREADY_EXISTS",
+                "existing_id": existing_draft.id,
+                "existing_number": existing_draft.invoice_number,
+                "document_type": "invoice",
+            },
+        )
+
+    # Check if there is dispatched quantity available to invoice
+    total_available = sum(
+        max(Decimal(0), _dispatched_so_far(db, li.id) - _invoiced_so_far(db, li.id))
+        for li in quote.line_items
+    )
+    if total_available <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": "All dispatched items on this Quote have already been fully invoiced.",
+                "error_code": "FULLY_FULFILLED",
+            },
+        )
 
     _validate_items_against_available(db, quote, payload.items)
 

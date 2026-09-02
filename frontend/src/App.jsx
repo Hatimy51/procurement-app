@@ -3,6 +3,7 @@ import {
   Inbox as InboxIcon, Package, Truck, History, FileText, Upload, ClipboardList,
   PackageCheck, Receipt, TrendingUp, ShoppingCart, ChevronDown, ChevronRight,
   FileQuestion, Mail, Users as UsersIcon, LogOut, LayoutDashboard, GitCompare,
+  MapPin, Warehouse,
 } from 'lucide-react'
 import { AuthProvider, useAuth } from './AuthContext'
 import Login from './Login'
@@ -21,14 +22,17 @@ import Inbox from './Inbox'
 import Users from './Users'
 import Dashboard from './Dashboard'
 import QuoteComparison from './QuoteComparison'
+import StoreLocations from './StoreLocations'
+import GoodsReceipt from './GoodsReceipt'
+import VendorPortal from './VendorPortal'
 
-// `roles` on each leaf item lists who may even SEE it in the sidebar,
-// matching the backend's require_router_access rules exactly:
-//   - purchase: every screen except Invoices
-//   - accounts: Invoices only
-//   - manager: can view everything (oversight), but can only ever DO
-//     anything on Customer Quotes' Approve action — every screen still
-//     enforces that server-side regardless of what the sidebar shows.
+// `roles` on each leaf item lists who may even SEE it in the sidebar.
+// Roles:
+//   purchase  — procurement screens
+//   accounts  — financial screens
+//   manager   — full portal access (all screens)
+//   admin     — user management only
+//   store     — GRN receiving queue only (filtered to their location)
 const NAV = [
   { type: 'item', key: 'dashboard', label: 'Executive Dashboard', icon: LayoutDashboard, component: Dashboard, roles: ['purchase', 'manager'] },
   { type: 'item', key: 'inbox', label: 'Inbox', icon: Mail, component: Inbox, roles: ['purchase', 'manager'] },
@@ -51,10 +55,14 @@ const NAV = [
       { key: 'supplier-quotes', label: 'Quote History', icon: History, component: QuoteHistory, roles: ['purchase', 'manager'] },
       { key: 'quote-comparison', label: 'Quote Comparison', icon: GitCompare, component: QuoteComparison, roles: ['purchase', 'manager'] },
       { key: 'purchase-orders', label: 'Purchase Orders', icon: ClipboardList, component: PurchaseOrders, roles: ['purchase', 'manager'] },
+      { key: 'store-locations', label: 'Store Locations', icon: MapPin, component: StoreLocations, roles: ['purchase', 'manager'] },
     ],
   },
   { type: 'item', key: 'import', label: 'Import', icon: Upload, component: Import, roles: ['purchase', 'manager'] },
-  { type: 'item', key: 'users', label: 'Users', icon: UsersIcon, component: Users, roles: ['manager'] },
+  // Admin: user management only
+  { type: 'item', key: 'users', label: 'Users', icon: UsersIcon, component: Users, roles: ['admin', 'manager'] },
+  // Store: GRN receiving queue only
+  { type: 'item', key: 'goods-receipt', label: 'Receiving Queue', icon: Warehouse, component: GoodsReceipt, roles: ['store', 'manager', 'purchase'] },
 ]
 
 function filterNavByRole(nav, role) {
@@ -167,6 +175,9 @@ function AppShell() {
 }
 
 function Gate() {
+  if (typeof window !== 'undefined' && (window.location.pathname.includes('/vendor-portal') || window.location.hash.includes('vendor-portal'))) {
+    return <VendorPortal />
+  }
   const { status } = useAuth()
   if (status === 'loading') return null
   if (status === 'needs-setup' || status === 'logged-out') return <Login />

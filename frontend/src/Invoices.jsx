@@ -36,6 +36,7 @@ export default function Invoices() {
   const [editPriceDrafts, setEditPriceDrafts] = useState({})
   const [editNotes, setEditNotes] = useState('')
   const [saving, setSaving] = useState(false)
+  const [refreshingERP, setRefreshingERP] = useState(false)
 
   const loadList = useCallback(async () => {
     setLoading(true)
@@ -82,10 +83,12 @@ export default function Invoices() {
     setCreating(true)
     try {
       const inv = await api.createInvoice({ customer_quote_id: pickedQuoteId, notes: createNotes || null, items })
-      setInfoMessage('Invoice created.')
-      await openDetail(inv.id)
     } catch (e) {
-      setError(e.message)
+      if (e.existing_id) {
+        setError({ message: e.message, existing_id: e.existing_id, existing_number: e.existing_number })
+      } else {
+        setError(e.message)
+      }
     } finally {
       setCreating(false)
     }
@@ -155,6 +158,20 @@ export default function Invoices() {
     }
   }
 
+  async function handleRefreshERP() {
+    setRefreshingERP(true)
+    setError(null)
+    try {
+      await api.refreshERPStatus({ record_type: 'invoice', record_id: selectedId })
+      setInfoMessage('ERP status refreshed.')
+      await openDetail(selectedId)
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setRefreshingERP(false)
+    }
+  }
+
   const money = (n) => `₹${Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 
   // ---- Detail view ----
@@ -166,16 +183,24 @@ export default function Invoices() {
           <button className="btn-link" onClick={() => setView('list')}>← Back to list</button>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <button className="btn btn-secondary" onClick={() => window.print()}>Print / Export</button>
+            <button className="btn btn-secondary" onClick={handleRefreshERP} disabled={refreshingERP}>
+              {refreshingERP ? 'Refreshing…' : 'Refresh ERP Status'}
+            </button>
             {!isDraft && (
-              <SyncToERPButton recordData={detail} recordType="invoice" />
+              <SyncToERPButton recordData={detail} recordType="invoice" onSynced={() => openDetail(selectedId)} />
             )}
             {isDraft && <button className="btn-link btn-link-danger" style={{ marginLeft: 10 }} onClick={handleDelete}>Delete draft</button>}
           </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4, flexWrap: 'wrap' }}>
           <h2 style={{ margin: 0, fontFamily: 'var(--font-mono)', color: 'var(--color-ink)' }}>{detail.invoice_number}</h2>
           <StatusBadge status={detail.status} />
+          {detail.erp_payment_status && (
+            <span className={`stamp ${detail.erp_payment_status === 'paid' ? 'stamp-success' : 'stamp-neutral'}`}>
+              ERP: {detail.erp_payment_status.toUpperCase()}
+            </span>
+          )}
         </div>
         <p style={styles.muted}>Against quote {detail.quote_number} · {detail.customer_name} · {detail.site_name}</p>
         <p style={styles.muted}>
@@ -269,7 +294,21 @@ export default function Invoices() {
           action={<button className="btn-link" onClick={() => setView('list')}>← Cancel</button>}
         />
 
-        {error && <div className="banner banner-error">{error}</div>}
+        {error && (
+          <div className="banner banner-error" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+            <span>{typeof error === 'object' ? error.message : error}</span>
+            {typeof error === 'object' && error.existing_id && (
+              <button
+                type="button"
+                className="btn btn-sm btn-primary"
+                style={{ padding: '4px 10px', fontSize: '12px' }}
+                onClick={() => openDetail(error.existing_id)}
+              >
+                Jump to Draft #{error.existing_number || ''} →
+              </button>
+            )}
+          </div>
+        )}
 
         <table className="ledger-table" style={{ marginBottom: 16 }}>
           <thead>
@@ -313,7 +352,21 @@ export default function Invoices() {
         description="GST-aware billing against what's actually been delivered — supports partial invoicing across more than one invoice."
       />
 
-      {error && <div className="banner banner-error">{error}</div>}
+      {error && (
+        <div className="banner banner-error" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+          <span>{typeof error === 'object' ? error.message : error}</span>
+          {typeof error === 'object' && error.existing_id && (
+            <button
+              type="button"
+              className="btn btn-sm btn-primary"
+              style={{ padding: '4px 10px', fontSize: '12px' }}
+              onClick={() => openDetail(error.existing_id)}
+            >
+              Jump to Draft #{error.existing_number || ''} →
+            </button>
+          )}
+        </div>
+      )}
       {infoMessage && <div className="banner banner-info">{infoMessage}</div>}
 
       {loading ? (

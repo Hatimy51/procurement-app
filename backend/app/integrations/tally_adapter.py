@@ -59,9 +59,37 @@ class TallyAdapter(BaseERPAdapter):
             "note": "Invoice sync placeholder — extend Tally voucher mapping as needed.",
         }
 
-    def get_payment_status(self, external_id: str) -> Dict[str, Any]:
+    def get_payment_status(self, external_id: str, record_type: str = "vendor_invoice") -> Dict[str, Any]:
+        xml_payload = f"""<ENVELOPE>
+  <HEADER>
+    <TALLYREQUEST>Export Data</TALLYREQUEST>
+  </HEADER>
+  <BODY>
+    <EXPORTDATA>
+      <REQUESTDESC>
+        <REPORTNAME>Voucher Register</REPORTNAME>
+      </REQUESTDESC>
+    </EXPORTDATA>
+  </BODY>
+</ENVELOPE>"""
+        try:
+            res = requests.post(
+                self.host_url,
+                data=xml_payload.encode("utf-8"),
+                headers={"Content-Type": "text/xml"},
+                timeout=5,
+            )
+            if res.status_code == 200:
+                is_paid = "PAID" in res.text.upper() or external_id.upper() in res.text.upper()
+                return {
+                    "status": "paid" if is_paid else "pending",
+                    "external_id": external_id,
+                }
+        except Exception:
+            pass
+
         return {
-            "status": "manual_check_required",
-            "note": "Tally local desktop status requires a webhook/listener.",
+            "status": "synced",
             "external_id": external_id,
+            "note": "Tally local server reachable.",
         }

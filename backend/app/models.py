@@ -118,9 +118,12 @@ class Supplier(Base):
     id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
     name = Column(String, nullable=False)
     email = Column(String, nullable=True)
+    gst_number = Column(String, nullable=True)   # used for Vendor Portal login
     phone = Column(String, nullable=True)
     contact_info = Column(Text)  # legacy free-text field, kept but no longer shown in the UI
     created_at = Column(DateTime, default=datetime.utcnow)
+
+    vendor_portal_documents = relationship("VendorPortalDocument", back_populates="supplier")
 
 
 class ProductSupplierLink(Base):
@@ -227,6 +230,8 @@ class Quote(Base):
 
     enquiry = relationship("Enquiry", back_populates="quotes")
     line_items = relationship("QuoteLineItem", back_populates="quote", cascade="all, delete-orphan")
+    delivery_challans = relationship("DeliveryChallan", back_populates="customer_quote")
+    invoices = relationship("Invoice", back_populates="customer_quote")
 
 
 class QuoteLineItem(Base):
@@ -249,18 +254,35 @@ class QuoteLineItem(Base):
 class UserRole(str, enum.Enum):
     purchase = "purchase"
     accounts = "accounts"
-    manager = "manager"
+    manager = "manager"   # full portal access — all screens, all actions
+    admin = "admin"       # user/account management only — no procurement screens
+    store = "store"       # GRN entry for their assigned store location only
+
+
+class StoreLocation(Base):
+    """A physical store / warehouse / site location. Purchasers create these manually.
+    When a PO is dispatched, it is linked to one of these locations so that the
+    store staff at that site can see their receiving queue."""
+    __tablename__ = "store_locations"
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    name = Column(String, nullable=False, unique=True)  # e.g. "Site A – Nagpur"
+    area = Column(String, nullable=True)                 # optional area/zone label
+    address = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    purchase_orders = relationship("PurchaseOrder", back_populates="store_location")
+    users = relationship("User", back_populates="store_location")
 
 
 class User(Base):
     """
-    A login account. Replaces the old is_purchaser/is_approver/is_accounts
-    boolean-flag design (never actually used — no login system existed
-    until now) with a single fixed role per person, matching how access is
-    actually granted: Purchase gets every screen except Invoices; Accounts
-    gets Invoices only; Manager can view everything but can only ever
-    approve a Customer Quote, nothing else. Multiple people can share a
-    role (e.g. two Purchase accounts).
+    A login account. Roles:
+      - purchase: procurement screens (POs, Suppliers, Quotes, RFQs, Inbox, GRNs).
+      - accounts: financial screens (Invoices, ERP Sync).
+      - manager:  full portal access — all screens plus all write actions.
+      - admin:    user/account management ONLY; no procurement screens at all.
+      - store:    GRN entry queue filtered to their assigned store location.
+    Multiple people can share a role. store-role users must be linked to a StoreLocation.
     """
     __tablename__ = "users"
     id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
@@ -268,7 +290,10 @@ class User(Base):
     email = Column(String, unique=True, nullable=False)
     password_hash = Column(String, nullable=False)
     role = Column(Enum(UserRole), nullable=False)
+    store_location_id = Column(UUID(as_uuid=False), ForeignKey("store_locations.id"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+    store_location = relationship("StoreLocation", back_populates="users")
 
 
 class Session(Base):
@@ -316,14 +341,24 @@ class PurchaseOrder(Base):
     po_number = Column(String, nullable=False)
     supplier_id = Column(UUID(as_uuid=False), ForeignKey("suppliers.id"), nullable=False)
     customer_quote_id = Column(UUID(as_uuid=False), ForeignKey("quotes.id"), nullable=True)
+    store_location_id = Column(UUID(as_uuid=False), ForeignKey("store_locations.id"), nullable=True)
     status = Column(Enum(POStatus), default=POStatus.draft, nullable=False)
+    approval_status = Column(String, nullable=True)  # None | 'pending_approval' | 'approved' | 'rejected'
+    requires_manager_approval = Column(Boolean, default=False, nullable=False)
     notes = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     sent_at = Column(DateTime, nullable=True)
+    erp_external_id = Column(String, nullable=True)
+    erp_sync_status = Column(String, nullable=True)
+    erp_payment_status = Column(String, nullable=True)
+    erp_synced_at = Column(DateTime, nullable=True)
 
     supplier = relationship("Supplier")
     customer_quote = relationship("Quote")
+    store_location = relationship("StoreLocation", back_populates="purchase_orders")
     line_items = relationship("PurchaseOrderLineItem", back_populates="purchase_order", cascade="all, delete-orphan")
+    goods_receipt_notes = relationship("GoodsReceiptNote", back_populates="purchase_order", cascade="all, delete-orphan")
+    vendor_invoices = relationship("VendorInvoice", back_populates="purchase_order", cascade="all, delete-orphan")
 
 
 class PurchaseOrderLineItem(Base):
@@ -342,6 +377,98 @@ class PurchaseOrderLineItem(Base):
     product = relationship("Product")
 
 
+class GRNStatus(str, enum.Enum):
+    draft = "draft"
+    received = "received"
+
+
+class GoodsReceiptNote(Base):
+    """
+    An inbound goods-movement document at the warehouse against a Vendor
+    Purchase Order — quantities received, physical carrier info, vendor
+    challan reference. Strictly decoupled from customer Delivery Challans.
+    """
+    __tablename__ = "goods_receipt_notes"
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    grn_number = Column(String, nullable=False)
+    po_id = Column(UUID(as_uuid=False), ForeignKey("purchase_orders.id"), nullable=False)
+    status = Column(Enum(GRNStatus), default=GRNStatus.draft, nullable=False)
+    vehicle_number = Column(String, nullable=True)
+    driver_name = Column(String, nullable=True)
+    challan_number = Column(String, nullable=True)  # Supplier's delivery challan / consignment #
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    received_at = Column(DateTime, nullable=True)
+
+    purchase_order = relationship("PurchaseOrder", back_populates="goods_receipt_notes")
+    line_items = relationship("GoodsReceiptNoteLineItem", back_populates="goods_receipt_note", cascade="all, delete-orphan")
+
+
+class GoodsReceiptNoteLineItem(Base):
+    __tablename__ = "goods_receipt_note_line_items"
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    grn_id = Column(UUID(as_uuid=False), ForeignKey("goods_receipt_notes.id"), nullable=False)
+    po_line_item_id = Column(UUID(as_uuid=False), ForeignKey("purchase_order_line_items.id"), nullable=False)
+    description = Column(String, nullable=False)
+    spec = Column(String, nullable=True)
+    unit = Column(String, nullable=False)
+    quantity_received = Column(Numeric, nullable=False)
+
+    goods_receipt_note = relationship("GoodsReceiptNote", back_populates="line_items")
+    purchase_order_line_item = relationship("PurchaseOrderLineItem")
+
+
+class VendorInvoiceStatus(str, enum.Enum):
+    draft = "draft"
+    verified = "verified"
+    paid = "paid"
+
+
+class VendorInvoice(Base):
+    """
+    An inbound billing document received from a Supplier against a Purchase
+    Order and optional GRN — enables 3-way matching in the procurement loop.
+    """
+    __tablename__ = "vendor_invoices"
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    invoice_number = Column(String, nullable=False)  # Supplier's bill/invoice number
+    supplier_id = Column(UUID(as_uuid=False), ForeignKey("suppliers.id"), nullable=False)
+    po_id = Column(UUID(as_uuid=False), ForeignKey("purchase_orders.id"), nullable=False)
+    grn_id = Column(UUID(as_uuid=False), ForeignKey("goods_receipt_notes.id"), nullable=True)
+    status = Column(Enum(VendorInvoiceStatus), default=VendorInvoiceStatus.draft, nullable=False)
+    invoice_date = Column(DateTime, nullable=True)
+    received_at = Column(DateTime, nullable=True)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    erp_external_id = Column(String, nullable=True)
+    erp_sync_status = Column(String, nullable=True)
+    erp_payment_status = Column(String, nullable=True)
+    erp_synced_at = Column(DateTime, nullable=True)
+
+    supplier = relationship("Supplier")
+    purchase_order = relationship("PurchaseOrder", back_populates="vendor_invoices")
+    goods_receipt_note = relationship("GoodsReceiptNote")
+    line_items = relationship("VendorInvoiceLineItem", back_populates="vendor_invoice", cascade="all, delete-orphan")
+
+
+class VendorInvoiceLineItem(Base):
+    __tablename__ = "vendor_invoice_line_items"
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    vendor_invoice_id = Column(UUID(as_uuid=False), ForeignKey("vendor_invoices.id"), nullable=False)
+    po_line_item_id = Column(UUID(as_uuid=False), ForeignKey("purchase_order_line_items.id"), nullable=True)
+    grn_line_item_id = Column(UUID(as_uuid=False), ForeignKey("goods_receipt_note_line_items.id"), nullable=True)
+    description = Column(String, nullable=False)
+    spec = Column(String, nullable=True)
+    unit = Column(String, nullable=False)
+    quantity_invoiced = Column(Numeric, nullable=False)
+    unit_price = Column(Numeric, nullable=True)
+    gst_percent = Column(Numeric, nullable=True)
+
+    vendor_invoice = relationship("VendorInvoice", back_populates="line_items")
+    purchase_order_line_item = relationship("PurchaseOrderLineItem")
+    goods_receipt_note_line_item = relationship("GoodsReceiptNoteLineItem")
+
+
 class DCStatus(str, enum.Enum):
     draft = "draft"
     dispatched = "dispatched"
@@ -349,7 +476,7 @@ class DCStatus(str, enum.Enum):
 
 class DeliveryChallan(Base):
     """
-    A goods-movement document accompanying a delivery to the customer —
+    An outbound goods-movement document accompanying a delivery to the customer —
     quantities only, no pricing (a traditional Delivery Challan is not a
     tax/billing document; that's what the future GST Invoice is for).
 
@@ -370,7 +497,7 @@ class DeliveryChallan(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     dispatched_at = Column(DateTime, nullable=True)
 
-    customer_quote = relationship("Quote")
+    customer_quote = relationship("Quote", back_populates="delivery_challans")
     line_items = relationship("DeliveryChallanLineItem", back_populates="delivery_challan", cascade="all, delete-orphan")
 
 
@@ -391,11 +518,12 @@ class DeliveryChallanLineItem(Base):
 class InvoiceStatus(str, enum.Enum):
     draft = "draft"
     issued = "issued"
+    paid = "paid"
 
 
 class Invoice(Base):
     """
-    A GST-aware billing document tied to a Customer Quote. Standard GST
+    An outbound GST-aware billing document tied to a Customer Quote. Standard GST
     split only (a single GST % per line) — no CGST/SGST/IGST breakdown or
     e-way bill threshold logic in this version, per the current scope.
 
@@ -414,8 +542,12 @@ class Invoice(Base):
     notes = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     issued_at = Column(DateTime, nullable=True)
+    erp_external_id = Column(String, nullable=True)
+    erp_sync_status = Column(String, nullable=True)
+    erp_payment_status = Column(String, nullable=True)
+    erp_synced_at = Column(DateTime, nullable=True)
 
-    customer_quote = relationship("Quote")
+    customer_quote = relationship("Quote", back_populates="invoices")
     line_items = relationship("InvoiceLineItem", back_populates="invoice", cascade="all, delete-orphan")
 
 
@@ -433,6 +565,13 @@ class InvoiceLineItem(Base):
 
     invoice = relationship("Invoice", back_populates="line_items")
     quote_line_item = relationship("QuoteLineItem")
+
+
+# Domain Aliases
+CustomerInvoice = Invoice
+CustomerInvoiceLineItem = InvoiceLineItem
+GRN = GoodsReceiptNote
+GRNLineItem = GoodsReceiptNoteLineItem
 
 
 class GmailConnection(Base):
@@ -477,3 +616,31 @@ class InboxMessageLog(Base):
 
     related_enquiry = relationship("Enquiry")
     related_supplier = relationship("Supplier")
+
+
+class VendorDocumentType(str, enum.Enum):
+    delivery_challan = "delivery_challan"
+    invoice = "invoice"
+    other = "other"
+
+
+class VendorPortalDocument(Base):
+    """
+    A file uploaded by a vendor via the Vendor Self-Service Portal, linked to
+    a specific Purchase Order. Vendors upload their Delivery Challans and
+    Invoices here so purchasers and store staff can always see them without
+    asking the vendor to resend.
+    """
+    __tablename__ = "vendor_portal_documents"
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    supplier_id = Column(UUID(as_uuid=False), ForeignKey("suppliers.id"), nullable=False)
+    po_id = Column(UUID(as_uuid=False), ForeignKey("purchase_orders.id"), nullable=False)
+    document_type = Column(Enum(VendorDocumentType), nullable=False)
+    file_name = Column(String, nullable=False)
+    file_path = Column(String, nullable=False)   # server-side storage path
+    file_size = Column(Numeric, nullable=True)   # bytes
+    notes = Column(Text, nullable=True)
+    uploaded_at = Column(DateTime, default=datetime.utcnow)
+
+    supplier = relationship("Supplier", back_populates="vendor_portal_documents")
+    purchase_order = relationship("PurchaseOrder")

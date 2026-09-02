@@ -7,7 +7,7 @@ import { api } from './api'
  * ERP credentials stay on the backend (.env); this component only sends
  * the ERP type, record type, and the record's canonical data.
  */
-export default function SyncToERPButton({ recordData, recordType = 'po', erpType = 'zoho' }) {
+export default function SyncToERPButton({ recordData, recordType = 'po', erpType = 'zoho', onSynced }) {
   const [loading, setLoading] = useState(false)
   const [syncStatus, setSyncStatus] = useState(null)
 
@@ -42,6 +42,7 @@ export default function SyncToERPButton({ recordData, recordType = 'po', erpType
       const resData = await api.syncToAccounting({
         erp_type: erpType,
         record_type: recordType,
+        record_id: recordData?.id,
         data: normalizedData,
       })
 
@@ -49,6 +50,7 @@ export default function SyncToERPButton({ recordData, recordType = 'po', erpType
         success: true,
         message: `Synced successfully! Ref: ${resData.result?.external_id || 'created'}`,
       })
+      if (onSynced) onSynced(resData.result)
     } catch (err) {
       setSyncStatus({
         success: false,

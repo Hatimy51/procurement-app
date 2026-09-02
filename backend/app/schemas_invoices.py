@@ -65,6 +65,10 @@ class InvoiceListItemOut(BaseModel):
     customer_name: str
     grand_total: Decimal
     created_at: datetime
+    erp_external_id: str | None = None
+    erp_sync_status: str | None = None
+    erp_payment_status: str | None = None
+    erp_synced_at: datetime | None = None
 
 
 class InvoiceDetailOut(BaseModel):
@@ -82,3 +86,7 @@ class InvoiceDetailOut(BaseModel):
     total_gst: Decimal
     grand_total: Decimal
     items_price_missing: int
+    erp_external_id: str | None = None
+    erp_sync_status: str | None = None
+    erp_payment_status: str | None = None
+    erp_synced_at: datetime | None = None
