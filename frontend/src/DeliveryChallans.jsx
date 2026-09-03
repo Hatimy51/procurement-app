@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { api } from './api'
 import PageHeader from './PageHeader'
+import DocumentTemplate from './DocumentTemplate'
 
 const STATUS_LABEL = { draft: 'Draft', dispatched: 'Dispatched' }
 const STATUS_STAMP = { draft: 'stamp-neutral', dispatched: 'stamp-success' }
@@ -180,75 +181,122 @@ export default function DeliveryChallans() {
 
   // ---- Detail view ----
   if (view === 'detail' && detail) {
-    const isDraft = detail.status === 'draft'
+    const actionsHeader = (
+      <>
+        <button className="btn btn-secondary" onClick={() => setView('list')}>← Back to list</button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn btn-secondary" onClick={() => window.print()}>Print / Export</button>
+          {isDraft && <button className="btn btn-danger" onClick={handleDelete}>Delete draft</button>}
+        </div>
+      </>
+    )
+
+    const extraMeta = [
+      { label: 'Quote Ref', value: detail.quote_number },
+    ]
+    if (detail.vehicle_number) {
+      extraMeta.push({ label: 'Vehicle No', value: detail.vehicle_number })
+    }
+    if (detail.driver_name) {
+      extraMeta.push({ label: 'Driver Name', value: detail.driver_name })
+    }
+
+    const processedItems = detail.items.map((item) => ({
+      ...item,
+      quantity: isDraft
+        ? (editQtyDrafts[item.id] !== undefined ? editQtyDrafts[item.id] : item.quantity_delivered)
+        : item.quantity_delivered,
+      unit_price: null,
+    }))
+
     return (
       <div>
-        <div style={styles.detailHeader} className="no-print">
-          <button className="btn-link" onClick={() => setView('list')}>← Back to list</button>
-          <div>
-            <button className="btn btn-secondary" onClick={() => window.print()}>Print / Export</button>
-            {isDraft && <button className="btn-link btn-link-danger" style={{ marginLeft: 10 }} onClick={handleDelete}>Delete draft</button>}
-          </div>
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
-          <h2 style={{ margin: 0, fontFamily: 'var(--font-mono)', color: 'var(--color-ink)' }}>{detail.dc_number}</h2>
-          <StatusBadge status={detail.status} />
-        </div>
-        <p style={styles.muted}>
-          Against quote {detail.quote_number}
-          {' · '}{detail.customer_name} · {detail.site_name}
-        </p>
-        <p style={styles.muted}>
-          Created {new Date(detail.created_at).toLocaleString()}
-          {detail.created_by && <> by {detail.created_by}</>}
-          {detail.updated_by && detail.updated_by !== detail.created_by && (
-            <> · Last edited by {detail.updated_by}</>
-          )}
-          {detail.dispatched_at && <> · Dispatched {new Date(detail.dispatched_at).toLocaleString()}</>}
-        </p>
-
         {error && <div className="banner banner-error no-print">{error}</div>}
         {infoMessage && <div className="banner banner-info no-print">{infoMessage}</div>}
 
-        <table className="ledger-table">
-          <thead>
-            <tr><th>Description</th><th>Spec</th><th>Unit</th><th>Qty Delivered</th></tr>
-          </thead>
-          <tbody>
-            {detail.items.map((item) => (
-              <tr key={item.id}>
-                <td>{item.description}</td>
-                <td>{item.spec || '—'}</td>
-                <td>{item.unit}</td>
-                <td className="num">
-                  {isDraft ? (
-                    <input
-                      type="number" step="0.01" style={{ width: 100 }}
-                      value={editQtyDrafts[item.id] !== undefined ? editQtyDrafts[item.id] : item.quantity_delivered}
-                      onChange={(e) => setEditQtyDrafts((d) => ({ ...d, [item.id]: e.target.value }))}
-                    />
-                  ) : item.quantity_delivered}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <DocumentTemplate
+          documentType="DELIVERY CHALLAN"
+          documentNumber={detail.dc_number}
+          status={detail.status}
+          statusBadge={<StatusBadge status={detail.status} />}
+          dateLabel="Challan Date"
+          dateValue={detail.created_at}
+          dueDateLabel="Dispatch Date"
+          dueDateValue={detail.dispatched_at}
+          extraMeta={extraMeta}
+          partyTitle="Customer (Consignee)"
+          partyName={detail.customer_name}
+          shipToTitle="Delivery Site / Site Address"
+          shipToName={detail.site_name}
+          createdBy={detail.created_by}
+          updatedBy={detail.updated_by}
+          items={processedItems}
+          showBankDetails={false}
+          notes={isDraft ? (
+            <div style={{ marginTop: 12 }}>
+              <label className="eyebrow">Notes / Special Instructions</label>
+              <textarea style={{ width: '100%' }} rows={3} value={editNotes} onChange={(e) => setEditNotes(e.target.value)} />
+            </div>
+          ) : detail.notes}
+          actions={actionsHeader}
+        >
+          {isDraft ? (
+            <div style={{ margin: '16px 0' }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-rust)', marginBottom: 8 }} className="no-print">
+                ✏️ Draft Mode: Edit quantities and transport details below.
+              </div>
+              <table className="ledger-table">
+                <thead>
+                  <tr><th>Description</th><th>Spec</th><th>Unit</th><th>Qty Delivered</th></tr>
+                </thead>
+                <tbody>
+                  {detail.items.map((item) => (
+                    <tr key={item.id}>
+                      <td>{item.description}</td>
+                      <td>{item.spec || '—'}</td>
+                      <td>{item.unit}</td>
+                      <td className="num">
+                        <input
+                          type="number" step="0.01" style={{ width: 100 }}
+                          value={editQtyDrafts[item.id] !== undefined ? editQtyDrafts[item.id] : item.quantity_delivered}
+                          onChange={(e) => setEditQtyDrafts((d) => ({ ...d, [item.id]: e.target.value }))}
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 16 }}>
-          <div>
-            <label className="eyebrow">Vehicle Number</label>
-            {isDraft ? (
-              <input style={{ width: '100%' }} value={editVehicle} onChange={(e) => setEditVehicle(e.target.value)} />
-            ) : <p style={{ fontSize: 13 }}>{detail.vehicle_number || '—'}</p>}
-          </div>
-          <div>
-            <label className="eyebrow">Driver Name</label>
-            {isDraft ? (
-              <input style={{ width: '100%' }} value={editDriver} onChange={(e) => setEditDriver(e.target.value)} />
-            ) : <p style={{ fontSize: 13 }}>{detail.driver_name || '—'}</p>}
-          </div>
-        </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 16 }}>
+                <div>
+                  <label className="eyebrow">Vehicle Number</label>
+                  <input style={{ width: '100%' }} value={editVehicle} onChange={(e) => setEditVehicle(e.target.value)} />
+                </div>
+                <div>
+                  <label className="eyebrow">Driver Name</label>
+                  <input style={{ width: '100%' }} value={editDriver} onChange={(e) => setEditDriver(e.target.value)} />
+                </div>
+              </div>
+            </div>
+          ) : (
+            <table className="ledger-table" style={{ margin: '16px 0' }}>
+              <thead>
+                <tr><th>#</th><th>Description</th><th>Spec</th><th>Unit</th><th style={{ textAlign: 'right' }}>Qty Delivered</th></tr>
+              </thead>
+              <tbody>
+                {detail.items.map((item, idx) => (
+                  <tr key={item.id}>
+                    <td className="mono">{idx + 1}</td>
+                    <td><strong>{item.description}</strong></td>
+                    <td>{item.spec || '—'}</td>
+                    <td>{item.unit || 'Nos'}</td>
+                    <td className="num" style={{ textAlign: 'right', fontWeight: 600 }}>{item.quantity_delivered}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </DocumentTemplate>
 
         <div style={{ marginTop: 12 }}>
           <label className="eyebrow">Notes</label>

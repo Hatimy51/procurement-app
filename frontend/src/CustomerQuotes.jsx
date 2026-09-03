@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { api } from './api'
 import PageHeader from './PageHeader'
 import { useAuth } from './AuthContext'
+import DocumentTemplate from './DocumentTemplate'
 
 const STATUS_LABEL = { draft: 'Draft', approved: 'Approved', sent: 'Sent' }
 const STATUS_STAMP = { draft: 'stamp-neutral', approved: 'stamp-accent', sent: 'stamp-success' }
@@ -188,104 +189,119 @@ export default function CustomerQuotes() {
     const isApproved = detail.status === 'approved'
     const isSent = detail.status === 'sent'
 
+    const canEdit = isDraft && user.role === 'purchase'
+
+    const processedItems = detail.items.map((item) => {
+      const price = canEdit ? priceDrafts[item.id] : item.unit_price
+      return {
+        ...item,
+        unit_price: price !== '' && price != null ? price : null,
+      }
+    })
+
+    const actionsHeader = (
+      <>
+        <button className="btn btn-secondary" onClick={backToList}>← Back to list</button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn btn-secondary" onClick={() => window.print()}>Print / Export</button>
+          {isDraft && user.role === 'purchase' && (
+            <button className="btn btn-danger" onClick={handleDelete}>Delete draft</button>
+          )}
+        </div>
+      </>
+    )
+
     return (
       <div>
-        <div style={styles.detailHeader} className="no-print">
-          <button style={styles.linkButton} onClick={backToList}>← Back to list</button>
-          <div>
-            <button style={styles.secondaryButton} onClick={() => window.print()}>Print / Export</button>
-            {isDraft && user.role === 'purchase' && (
-              <button style={styles.dangerLinkButton} onClick={handleDelete}>Delete draft</button>
-            )}
-          </div>
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
-          <h2 style={{ margin: 0, fontFamily: 'var(--font-mono)', color: 'var(--color-ink)' }}>{detail.quote_number}</h2>
-          <StatusBadge status={detail.status} />
-        </div>
-        <p style={styles.muted}>For {detail.customer_name} · {detail.site_name}</p>
-        <p style={styles.muted}>
-          Created {new Date(detail.created_at).toLocaleString()}
-          {detail.created_by && <> by {detail.created_by}</>}
-          {detail.updated_by && detail.updated_by !== detail.created_by && (
-            <> · Last edited by {detail.updated_by}</>
-          )}
-          {detail.sent_at && <> · Sent {new Date(detail.sent_at).toLocaleString()}</>}
-        </p>
-
         {error && <div style={styles.errorBanner} className="no-print">{error}</div>}
         {infoMessage && <div style={styles.infoBanner} className="no-print">{infoMessage}</div>}
         {isDraft && detail.items_price_missing > 0 && (
-          <div style={styles.warnBanner}>
+          <div style={styles.warnBanner} className="no-print">
             {detail.items_price_missing} item(s) still have no price — fill those in before this quote can be approved.
           </div>
         )}
 
-        <table style={styles.table}>
-          <thead>
-            <tr>
-              <th style={styles.th}>Description</th>
-              <th style={styles.th}>Spec</th>
-              <th style={styles.th}>Qty</th>
-              <th style={styles.th}>Unit</th>
-              <th style={styles.th}>Unit Price</th>
-              <th style={styles.th}>GST %</th>
-              <th style={styles.th}>Line Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            {detail.items.map((item) => {
-              const canEdit = isDraft && user.role === 'purchase'
-              const price = canEdit ? priceDrafts[item.id] : item.unit_price
-              const lineTotal = price !== '' && price != null ? Number(price) * Number(item.quantity) : null
-              return (
-                <tr key={item.id} style={styles.tr}>
-                  <td style={styles.td}>{item.description}</td>
-                  <td style={styles.td}>{item.spec || '—'}</td>
-                  <td style={{ ...styles.td, fontFamily: 'var(--font-mono)' }}>{item.quantity}</td>
-                  <td style={styles.td}>{item.unit}</td>
-                  <td style={{ ...styles.td, fontFamily: 'var(--font-mono)' }}>
-                    {canEdit ? (
-                      <input
-                        style={styles.priceInput}
-                        type="number"
-                        step="0.01"
-                        placeholder="Price Missing"
-                        value={priceDrafts[item.id]}
-                        onChange={(e) => updatePriceDraft(item.id, e.target.value)}
-                      />
-                    ) : (
-                      item.unit_price != null ? money(item.unit_price) : '—'
-                    )}
-                  </td>
-                  <td style={{ ...styles.td, fontFamily: 'var(--font-mono)' }}>{item.gst_percent != null ? `${item.gst_percent}%` : '—'}</td>
-                  <td style={{ ...styles.td, fontFamily: 'var(--font-mono)' }}>{lineTotal != null ? money(lineTotal) : '—'}</td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
-
-        <div style={styles.totalsBlock}>
-          <div style={styles.totalsRow}><span>Subtotal</span><span>{money(detail.subtotal)}</span></div>
-          <div style={styles.totalsRow}><span>Total GST</span><span>{money(detail.total_gst)}</span></div>
-          <div style={{ ...styles.totalsRow, fontWeight: 700 }}><span>Grand Total</span><span>{money(detail.grand_total)}</span></div>
-        </div>
-
-        <div style={{ marginTop: 16 }}>
-          <label style={styles.label}>Notes (payment terms, validity, etc.)</label>
-          {isDraft && user.role === 'purchase' ? (
-            <textarea
-              style={styles.textarea}
-              value={notesDraft}
-              onChange={(e) => setNotesDraft(e.target.value)}
-              rows={3}
-            />
-          ) : (
-            <p style={styles.notesText}>{detail.notes || '—'}</p>
+        <DocumentTemplate
+          documentType="QUOTATION"
+          documentNumber={detail.quote_number}
+          status={detail.status}
+          statusBadge={<StatusBadge status={detail.status} />}
+          dateLabel="Quote Date"
+          dateValue={detail.created_at}
+          dueDateLabel="Valid Until"
+          dueDateValue={new Date(new Date(detail.created_at).getTime() + 30 * 24 * 60 * 60 * 1000)}
+          partyTitle="Customer (Bill To)"
+          partyName={detail.customer_name}
+          partyEmail={detail.customer_email}
+          partyPhone={detail.customer_phone}
+          shipToTitle="Delivery Site / Project"
+          shipToName={detail.site_name}
+          createdBy={detail.created_by}
+          updatedBy={detail.updated_by}
+          items={processedItems}
+          subtotal={detail.subtotal}
+          totalGst={detail.total_gst}
+          grandTotal={detail.grand_total}
+          notes={isDraft && canEdit ? (
+            <div>
+              <label style={styles.label}>Notes (payment terms, validity, etc.)</label>
+              <textarea
+                style={styles.textarea}
+                value={notesDraft}
+                onChange={(e) => setNotesDraft(e.target.value)}
+                rows={3}
+              />
+            </div>
+          ) : detail.notes}
+          actions={actionsHeader}
+        >
+          {canEdit && (
+            <div style={{ margin: '16px 0' }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-rust)', marginBottom: 8 }} className="no-print">
+                ✏️ Draft Mode: Enter unit prices below and click &quot;Save Draft&quot;.
+              </div>
+              <table style={styles.table}>
+                <thead>
+                  <tr>
+                    <th style={styles.th}>Description</th>
+                    <th style={styles.th}>Spec</th>
+                    <th style={{ ...styles.th, textAlign: 'right' }}>Qty</th>
+                    <th style={styles.th}>Unit</th>
+                    <th style={{ ...styles.th, textAlign: 'right' }}>Unit Price (₹)</th>
+                    <th style={{ ...styles.th, textAlign: 'right' }}>GST %</th>
+                    <th style={{ ...styles.th, textAlign: 'right' }}>Line Total (₹)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {detail.items.map((item) => {
+                    const price = priceDrafts[item.id]
+                    const lineTotal = price !== '' && price != null ? Number(price) * Number(item.quantity) : null
+                    return (
+                      <tr key={item.id} style={styles.tr}>
+                        <td style={styles.td}>{item.description}</td>
+                        <td style={styles.td}>{item.spec || '—'}</td>
+                        <td style={{ ...styles.td, textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{item.quantity}</td>
+                        <td style={styles.td}>{item.unit}</td>
+                        <td style={{ ...styles.td, textAlign: 'right' }}>
+                          <input
+                            style={styles.priceInput}
+                            type="number"
+                            step="0.01"
+                            placeholder="Price Missing"
+                            value={priceDrafts[item.id]}
+                            onChange={(e) => updatePriceDraft(item.id, e.target.value)}
+                          />
+                        </td>
+                        <td style={{ ...styles.td, textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{item.gst_percent != null ? `${item.gst_percent}%` : '—'}</td>
+                        <td style={{ ...styles.td, textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{lineTotal != null ? money(lineTotal) : '—'}</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
           )}
-        </div>
+        </DocumentTemplate>
 
         <div style={styles.actionsRow} className="no-print">
           {isDraft && user.role === 'purchase' && (
