@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { PackageCheck, FileText, Download, CheckCircle2, AlertCircle, ChevronDown, ChevronUp, Printer } from 'lucide-react'
 
 const BASE = '/api'
@@ -277,6 +277,8 @@ function GRNCard({ po, onConfirmed }) {
 
 export default function GoodsReceipt() {
   const [pos, setPos] = useState([])
+  const [search, setSearch] = useState('')
+  const [supplierFilter, setSupplierFilter] = useState('all')
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState('')
 
@@ -293,21 +295,60 @@ export default function GoodsReceipt() {
   if (loading) return <div style={{ padding: 40, textAlign: 'center', color: '#9ca3af' }}>Loading receiving queue…</div>
   if (err) return <div style={{ padding: 40, color: '#ef4444' }}>{err}</div>
 
+  const q = search.trim().toLowerCase()
+  const filtered = pos.filter(po => {
+    if (q) {
+      const matchPO = po.po_number?.toLowerCase().includes(q)
+      const matchSup = po.supplier_name?.toLowerCase().includes(q)
+      const matchLoc = po.store_location?.toLowerCase().includes(q)
+      if (!matchPO && !matchSup && !matchLoc) return false
+    }
+    if (supplierFilter !== 'all' && po.supplier_name !== supplierFilter) return false
+    return true
+  })
+
   return (
     <div style={s.page}>
       <h1 style={s.title}>Goods Receiving Queue</h1>
       <p style={s.subtitle}>Review incoming deliveries, verify quantities against the PO, and confirm receipt.</p>
+
+      {/* Search and Filters */}
+      {pos.length > 0 && (
+        <div style={{ display: 'flex', gap: 10, marginBottom: 18, alignItems: 'center', flexWrap: 'wrap' }}>
+          <input
+            style={{ flex: 1, minWidth: 220, padding: '8px 12px', fontSize: 13, border: '1px solid #d1d5db', borderRadius: 6 }}
+            placeholder="Search by PO #, supplier, or location…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
+          <select
+            style={{ padding: '8px 12px', fontSize: 13, border: '1px solid #d1d5db', borderRadius: 6, background: '#fff' }}
+            value={supplierFilter}
+            onChange={e => setSupplierFilter(e.target.value)}
+          >
+            <option value="all">All Suppliers</option>
+            {[...new Set(pos.map(p => p.supplier_name).filter(Boolean))].map(sup => (
+              <option key={sup} value={sup}>{sup}</option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {pos.length === 0 ? (
         <div style={{ textAlign: 'center', padding: 60, color: '#9ca3af' }}>
           <PackageCheck size={48} style={{ marginBottom: 12, opacity: 0.3 }} />
           <div>No deliveries pending for your location.</div>
         </div>
+      ) : filtered.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: 40, color: '#9ca3af' }}>
+          No incoming orders match your filter criteria.
+        </div>
       ) : (
-        pos.map(po => (
+        filtered.map(po => (
           <GRNCard key={po.id} po={po} onConfirmed={load} />
         ))
       )}
     </div>
   )
 }
+

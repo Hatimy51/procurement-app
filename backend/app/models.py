@@ -55,6 +55,9 @@ class Customer(Base):
     phone = Column(String, nullable=True)
     contact_info = Column(Text)  # legacy free-text field, kept but no longer shown in the UI
     created_at = Column(DateTime, default=datetime.utcnow)
+    created_by = Column(String, nullable=True)
+    updated_by = Column(String, nullable=True)
+    updated_at = Column(DateTime, nullable=True)
 
     sites = relationship("Site", back_populates="customer")
 
@@ -79,6 +82,9 @@ class Enquiry(Base):
     extraction_confidence = Column(Numeric, nullable=True)
     source = Column(String, nullable=False, default="manual")  # "manual" or "gmail"
     created_at = Column(DateTime, default=datetime.utcnow)
+    created_by = Column(String, nullable=True)
+    updated_by = Column(String, nullable=True)
+    updated_at = Column(DateTime, nullable=True)
 
     site = relationship("Site", back_populates="enquiries")
     items = relationship("EnquiryItem", back_populates="enquiry", cascade="all, delete-orphan")
@@ -109,6 +115,9 @@ class Product(Base):
     unit = Column(String, nullable=True)
     gst_percent = Column(Numeric, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+    created_by = Column(String, nullable=True)
+    updated_by = Column(String, nullable=True)
+    updated_at = Column(DateTime, nullable=True)
 
     price_entries = relationship("PriceEntry", back_populates="product", order_by="desc(PriceEntry.date)")
 
@@ -122,6 +131,9 @@ class Supplier(Base):
     phone = Column(String, nullable=True)
     contact_info = Column(Text)  # legacy free-text field, kept but no longer shown in the UI
     created_at = Column(DateTime, default=datetime.utcnow)
+    created_by = Column(String, nullable=True)
+    updated_by = Column(String, nullable=True)
+    updated_at = Column(DateTime, nullable=True)
 
     vendor_portal_documents = relationship("VendorPortalDocument", back_populates="supplier")
 
@@ -222,6 +234,9 @@ class Quote(Base):
     status = Column(Enum(QuoteStatus), default=QuoteStatus.draft, nullable=False)
     notes = Column(Text, nullable=True)  # e.g. payment terms, validity — freeform
     created_at = Column(DateTime, default=datetime.utcnow)
+    created_by = Column(String, nullable=True)
+    updated_by = Column(String, nullable=True)
+    updated_at = Column(DateTime, nullable=True)
     approved_by_name = Column(String, nullable=True)
     approved_at = Column(DateTime, nullable=True)
     sent_at = Column(DateTime, nullable=True)
@@ -347,6 +362,9 @@ class PurchaseOrder(Base):
     requires_manager_approval = Column(Boolean, default=False, nullable=False)
     notes = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+    created_by = Column(String, nullable=True)
+    updated_by = Column(String, nullable=True)
+    updated_at = Column(DateTime, nullable=True)
     sent_at = Column(DateTime, nullable=True)
     erp_external_id = Column(String, nullable=True)
     erp_sync_status = Column(String, nullable=True)
@@ -495,6 +513,9 @@ class DeliveryChallan(Base):
     driver_name = Column(String, nullable=True)
     notes = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+    created_by = Column(String, nullable=True)
+    updated_by = Column(String, nullable=True)
+    updated_at = Column(DateTime, nullable=True)
     dispatched_at = Column(DateTime, nullable=True)
 
     customer_quote = relationship("Quote", back_populates="delivery_challans")
@@ -541,6 +562,9 @@ class Invoice(Base):
     status = Column(Enum(InvoiceStatus), default=InvoiceStatus.draft, nullable=False)
     notes = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+    created_by = Column(String, nullable=True)
+    updated_by = Column(String, nullable=True)
+    updated_at = Column(DateTime, nullable=True)
     issued_at = Column(DateTime, nullable=True)
     erp_external_id = Column(String, nullable=True)
     erp_sync_status = Column(String, nullable=True)
@@ -644,3 +668,14 @@ class VendorPortalDocument(Base):
 
     supplier = relationship("Supplier", back_populates="vendor_portal_documents")
     purchase_order = relationship("PurchaseOrder")
+
+
+class ChatMessage(Base):
+    """A shared team chat open to all authenticated users."""
+    __tablename__ = "chat_messages"
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    sender_user_id = Column(UUID(as_uuid=False), ForeignKey("users.id"), nullable=False)
+    message = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    sender = relationship("User")

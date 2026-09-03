@@ -18,6 +18,8 @@ export default function CustomerQuotes() {
   const { user } = useAuth()
   const [ready, setReady] = useState([])
   const [quotes, setQuotes] = useState([])
+  const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState('all')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [infoMessage, setInfoMessage] = useState(null)
@@ -202,17 +204,15 @@ export default function CustomerQuotes() {
           <h2 style={{ margin: 0, fontFamily: 'var(--font-mono)', color: 'var(--color-ink)' }}>{detail.quote_number}</h2>
           <StatusBadge status={detail.status} />
         </div>
+        <p style={styles.muted}>For {detail.customer_name} · {detail.site_name}</p>
         <p style={styles.muted}>
-          {detail.customer_name} · {detail.site_name} · Created {new Date(detail.created_at).toLocaleString()}
+          Created {new Date(detail.created_at).toLocaleString()}
+          {detail.created_by && <> by {detail.created_by}</>}
+          {detail.updated_by && detail.updated_by !== detail.created_by && (
+            <> · Last edited by {detail.updated_by}</>
+          )}
+          {detail.sent_at && <> · Sent {new Date(detail.sent_at).toLocaleString()}</>}
         </p>
-        {detail.approved_by_name && (
-          <p style={styles.muted}>
-            Approved by {detail.approved_by_name} on {new Date(detail.approved_at).toLocaleString()}
-          </p>
-        )}
-        {detail.sent_at && (
-          <p style={styles.muted}>Sent {new Date(detail.sent_at).toLocaleString()}</p>
-        )}
 
         {error && <div style={styles.errorBanner} className="no-print">{error}</div>}
         {infoMessage && <div style={styles.infoBanner} className="no-print">{infoMessage}</div>}
@@ -378,37 +378,80 @@ export default function CustomerQuotes() {
           )}
 
           <h3 style={{ marginTop: 28 }}>Quotes</h3>
+
+          {/* Search and Status Filters */}
+          {quotes.length > 0 && (
+            <div style={{ display: 'flex', gap: 10, margin: '14px 0', alignItems: 'center', flexWrap: 'wrap' }}>
+              <input
+                style={{ flex: 1, minWidth: 220, padding: '8px 12px', fontSize: 13, border: '1px solid var(--color-line)', borderRadius: 4 }}
+                placeholder="Search by Quote #, customer, or site…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+              <select
+                style={{ padding: '8px 12px', fontSize: 13, border: '1px solid var(--color-line)', borderRadius: 4 }}
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+              >
+                <option value="all">All Statuses</option>
+                <option value="draft">Draft</option>
+                <option value="approved">Approved</option>
+                <option value="sent">Sent to Customer</option>
+              </select>
+            </div>
+          )}
+
           {quotes.length === 0 ? (
             <p style={styles.muted}>No quotes generated yet.</p>
           ) : (
-            <table style={styles.table}>
-              <thead>
-                <tr>
-                  <th style={styles.th}>Quote #</th>
-                  <th style={styles.th}>Customer</th>
-                  <th style={styles.th}>Site</th>
-                  <th style={styles.th}>Status</th>
-                  <th style={styles.th}>Total</th>
-                  <th style={styles.th}>Created</th>
-                  <th style={styles.th}></th>
-                </tr>
-              </thead>
-              <tbody>
-                {quotes.map((q) => (
-                  <tr key={q.id} style={styles.tr}>
-                    <td style={styles.td}>{q.quote_number}</td>
-                    <td style={styles.td}>{q.customer_name}</td>
-                    <td style={styles.td}>{q.site_name}</td>
-                    <td style={styles.td}><StatusBadge status={q.status} /></td>
-                    <td style={{ ...styles.td, fontFamily: 'var(--font-mono)' }}>{money(q.grand_total)}</td>
-                    <td style={styles.td}>{new Date(q.created_at).toLocaleString()}</td>
-                    <td style={styles.td}>
-                      <button style={styles.linkButton} onClick={() => openDetail(q.id)}>View</button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            (() => {
+              const qStr = search.trim().toLowerCase()
+              const filtered = quotes.filter((q) => {
+                if (qStr) {
+                  const matchNum = q.quote_number?.toLowerCase().includes(qStr)
+                  const matchCust = q.customer_name?.toLowerCase().includes(qStr)
+                  const matchSite = q.site_name?.toLowerCase().includes(qStr)
+                  if (!matchNum && !matchCust && !matchSite) return false
+                }
+                if (statusFilter !== 'all' && q.status !== statusFilter) return false
+                return true
+              })
+
+              if (filtered.length === 0) {
+                return <p style={{ ...styles.muted, padding: '20px 0' }}>No quotes match your search and filter criteria.</p>
+              }
+
+              return (
+                <table style={styles.table}>
+                  <thead>
+                    <tr>
+                      <th style={styles.th}>Quote #</th>
+                      <th style={styles.th}>Customer</th>
+                      <th style={styles.th}>Site</th>
+                      <th style={styles.th}>Status</th>
+                      <th style={styles.th}>Total</th>
+                      <th style={styles.th}>Created</th>
+                      <th style={styles.th}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filtered.map((q) => (
+                      <tr key={q.id} style={styles.tr}>
+                        <td style={styles.td}>{q.quote_number}</td>
+                        <td style={styles.td}>{q.customer_name}</td>
+                        <td style={styles.td}>{q.site_name}</td>
+                        <td style={styles.td}><StatusBadge status={q.status} /></td>
+                        <td style={{ ...styles.td, fontFamily: 'var(--font-mono)' }}>{money(q.grand_total)}</td>
+                        <td style={styles.td}>{new Date(q.created_at).toLocaleString()}</td>
+                        <td style={styles.td}>
+                          <button style={styles.linkButton} onClick={() => openDetail(q.id)}>View</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )
+            })()
           )}
         </>
       )}

@@ -33,6 +33,10 @@ class ProductOut(BaseModel):
     created_at: datetime
     price_entries: list[PriceEntryOut] = []
 
+    created_by: str | None = None
+    updated_by: str | None = None
+    updated_at: datetime | None = None
+
 
 class PriceEntryCreate(BaseModel):
     product_id: str

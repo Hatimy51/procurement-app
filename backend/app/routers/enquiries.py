@@ -3,6 +3,8 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app import models, schemas
+from app.security import get_current_user
+from datetime import datetime
 from app.extraction.base import get_extraction_service, ENQUIRY_SCHEMA
 from app.document_readers import extract_text_from_upload
 from app.matching import is_exact_match
@@ -12,7 +14,7 @@ router = APIRouter(prefix="/api/enquiries", tags=["enquiries"])
 
 def _ingest_from_text(
     customer_name: str | None, site_name: str | None, raw_text: str, db: Session,
-    source: str = "manual",
+    source: str = "manual", created_by: str | None = None,
 ) -> models.Enquiry:
     """
     Shared core of steps 1-4 of the v1 flow, regardless of how the raw text
@@ -65,6 +67,7 @@ def _ingest_from_text(
         status=models.EnquiryStatus.new,
         source=source,
         extraction_confidence=result.confidence,
+        created_by=created_by,
     )
     db.add(enquiry)
     db.flush()
@@ -109,9 +112,9 @@ def _ingest_from_text(
 
 
 @router.post("/ingest", response_model=schemas.EnquiryOut)
-def ingest_enquiry(payload: schemas.EnquiryIngestRequest, db: Session = Depends(get_db)):
+def ingest_enquiry(payload: schemas.EnquiryIngestRequest, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     """Ingest from pasted text (e.g. copy-pasted from an email)."""
-    return _ingest_from_text(payload.customer_name, payload.site_name, payload.raw_text, db)
+    return _ingest_from_text(payload.customer_name, payload.site_name, payload.raw_text, db, created_by=user.name)
 
 
 @router.post("/ingest-file", response_model=schemas.EnquiryOut)
@@ -120,6 +123,7 @@ async def ingest_enquiry_file(
     site_name: str = Form(...),
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
 ):
     """
     Ingest from an uploaded file — Excel (.xlsx/.xls), CSV, or a screenshot/
@@ -141,4 +145,4 @@ async def ingest_enquiry_file(
             "means the OCR couldn't make out the content clearly enough.",
         )
 
-    return _ingest_from_text(customer_name, site_name, raw_text, db)
+    return _ingest_from_text(customer_name, site_name, raw_text, db, created_by=user.name)

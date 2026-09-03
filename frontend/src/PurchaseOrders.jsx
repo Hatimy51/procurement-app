@@ -48,6 +48,9 @@ export default function PurchaseOrders() {
   const { user } = useAuth()
   const [view, setView] = useState('list') // 'list' | 'create' | 'detail'
   const [pos, setPos] = useState([])
+  const [listSearch, setListSearch] = useState('')
+  const [listStatusFilter, setListStatusFilter] = useState('all')
+  const [listStoreFilter, setListStoreFilter] = useState('all')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [infoMessage, setInfoMessage] = useState(null)
@@ -360,6 +363,10 @@ export default function PurchaseOrders() {
         </p>
         <p style={styles.muted}>
           Created {new Date(detail.created_at).toLocaleString()}
+          {detail.created_by && <> by {detail.created_by}</>}
+          {detail.updated_by && detail.updated_by !== detail.created_by && (
+            <> · Last edited by {detail.updated_by}</>
+          )}
           {detail.customer_quote_number && <> · For quote {detail.customer_quote_number}</>}
           {detail.sent_at && <> · Sent {new Date(detail.sent_at).toLocaleString()}</>}
         </p>
@@ -694,63 +701,116 @@ export default function PurchaseOrders() {
       )}
       {infoMessage && <div className="banner banner-info">{infoMessage}</div>}
 
+      {/* Filter and Search Bar */}
+      <div style={{ display: 'flex', gap: 10, margin: '14px 0', alignItems: 'center', flexWrap: 'wrap' }}>
+        <input
+          style={{ flex: 1, minWidth: 200, padding: '8px 12px', fontSize: 13, border: '1px solid var(--color-line)', borderRadius: 4 }}
+          placeholder="Search by PO #, supplier, or notes…"
+          value={listSearch}
+          onChange={(e) => setListSearch(e.target.value)}
+        />
+        <select
+          style={{ padding: '8px 12px', fontSize: 13, border: '1px solid var(--color-line)', borderRadius: 4 }}
+          value={listStatusFilter}
+          onChange={(e) => setListStatusFilter(e.target.value)}
+        >
+          <option value="all">All Statuses</option>
+          <option value="draft">Drafts Only</option>
+          <option value="sent">Sent to Supplier</option>
+          <option value="pending_approval">Pending Manager Approval</option>
+        </select>
+        <select
+          style={{ padding: '8px 12px', fontSize: 13, border: '1px solid var(--color-line)', borderRadius: 4 }}
+          value={listStoreFilter}
+          onChange={(e) => setListStoreFilter(e.target.value)}
+        >
+          <option value="all">All Stores / Sites</option>
+          {[...new Set(pos.map((p) => p.store_location_name).filter(Boolean))].map((loc) => (
+            <option key={loc} value={loc}>{loc}</option>
+          ))}
+        </select>
+      </div>
+
       {loading ? (
         <p>Loading…</p>
       ) : pos.length === 0 ? (
         <p style={styles.muted}>No purchase orders yet.</p>
       ) : (
-        <table className="ledger-table">
-          <thead>
-            <tr><th>PO #</th><th>Supplier</th><th>Store / Site</th><th>Status</th><th>Lifecycle</th><th>Total</th><th>Created</th><th></th></tr>
-          </thead>
-          <tbody>
-            {pos.map((po) => (
-              <tr key={po.id}>
-                <td className="num">{po.po_number}</td>
-                <td>{po.supplier_name}</td>
-                <td>
-                  {po.store_location_name ? (
-                    <span style={{ fontSize: 11, padding: '2px 6px', borderRadius: 4, background: '#ede9fe', color: '#7c3aed', fontWeight: 600 }}>
-                      📍 {po.store_location_name}
-                    </span>
-                  ) : '—'}
-                </td>
-                <td>
-                  <StatusBadge status={po.status} />
-                  {po.requires_manager_approval && (
-                    <div style={{ marginTop: 2 }}>
-                      <span style={{
-                        fontSize: 10, padding: '2px 5px', borderRadius: 4, fontWeight: 700,
-                        background: po.approval_status === 'approved' ? '#dcfce7' : po.approval_status === 'rejected' ? '#fee2e2' : '#fef3c7',
-                        color: po.approval_status === 'approved' ? '#15803d' : po.approval_status === 'rejected' ? '#b91c1c' : '#b45309',
-                      }}>
-                        {po.approval_status === 'approved' ? '✓ Approved' : po.approval_status === 'rejected' ? '✕ Rejected' : '⏳ >₹1L Approval'}
-                      </span>
-                    </div>
-                  )}
-                </td>
-                <td>
-                  <div style={{ fontSize: 11 }}>
-                    {po.status === 'sent' ? (
-                      po.receipt_pct >= 100 ? (
-                        <span style={{ color: '#15803d', fontWeight: 600 }}>✓ Recv 100%</span>
-                      ) : po.receipt_pct > 0 ? (
-                        <span style={{ color: '#b45309', fontWeight: 600 }}>Recv {po.receipt_pct}%</span>
-                      ) : (
-                        <span style={{ color: '#6b7280' }}>Pending Delivery</span>
-                      )
-                    ) : (
-                      <span style={{ color: '#9ca3af' }}>Draft</span>
-                    )}
-                  </div>
-                </td>
-                <td className="num">{money(po.grand_total)}</td>
-                <td>{new Date(po.created_at).toLocaleString()}</td>
-                <td><button className="btn-link" onClick={() => openDetail(po.id)}>View</button></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        (() => {
+          const q = listSearch.trim().toLowerCase()
+          const filtered = pos.filter((po) => {
+            if (q) {
+              const matchPO = po.po_number?.toLowerCase().includes(q)
+              const matchSup = po.supplier_name?.toLowerCase().includes(q)
+              const matchStore = po.store_location_name?.toLowerCase().includes(q)
+              if (!matchPO && !matchSup && !matchStore) return false
+            }
+            if (listStatusFilter === 'draft' && po.status !== 'draft') return false
+            if (listStatusFilter === 'sent' && po.status !== 'sent') return false
+            if (listStatusFilter === 'pending_approval' && (!po.requires_manager_approval || po.approval_status !== 'pending_approval')) return false
+            if (listStoreFilter !== 'all' && po.store_location_name !== listStoreFilter) return false
+            return true
+          })
+
+          if (filtered.length === 0) {
+            return <p style={{ ...styles.muted, padding: '20px 0' }}>No purchase orders match your search and filter criteria.</p>
+          }
+
+          return (
+            <table className="ledger-table">
+              <thead>
+                <tr><th>PO #</th><th>Supplier</th><th>Store / Site</th><th>Status</th><th>Lifecycle</th><th>Total</th><th>Created</th><th></th></tr>
+              </thead>
+              <tbody>
+                {filtered.map((po) => (
+                  <tr key={po.id}>
+                    <td className="num">{po.po_number}</td>
+                    <td>{po.supplier_name}</td>
+                    <td>
+                      {po.store_location_name ? (
+                        <span style={{ fontSize: 11, padding: '2px 6px', borderRadius: 4, background: '#ede9fe', color: '#7c3aed', fontWeight: 600 }}>
+                          📍 {po.store_location_name}
+                        </span>
+                      ) : '—'}
+                    </td>
+                    <td>
+                      <StatusBadge status={po.status} />
+                      {po.requires_manager_approval && (
+                        <div style={{ marginTop: 2 }}>
+                          <span style={{
+                            fontSize: 10, padding: '2px 5px', borderRadius: 4, fontWeight: 700,
+                            background: po.approval_status === 'approved' ? '#dcfce7' : po.approval_status === 'rejected' ? '#fee2e2' : '#fef3c7',
+                            color: po.approval_status === 'approved' ? '#15803d' : po.approval_status === 'rejected' ? '#b91c1c' : '#b45309',
+                          }}>
+                            {po.approval_status === 'approved' ? '✓ Approved' : po.approval_status === 'rejected' ? '✕ Rejected' : '⏳ >₹1L Approval'}
+                          </span>
+                        </div>
+                      )}
+                    </td>
+                    <td>
+                      <div style={{ fontSize: 11 }}>
+                        {po.status === 'sent' ? (
+                          po.receipt_pct >= 100 ? (
+                            <span style={{ color: '#15803d', fontWeight: 600 }}>✓ Recv 100%</span>
+                          ) : po.receipt_pct > 0 ? (
+                            <span style={{ color: '#b45309', fontWeight: 600 }}>Recv {po.receipt_pct}%</span>
+                          ) : (
+                            <span style={{ color: '#6b7280' }}>Pending Delivery</span>
+                          )
+                        ) : (
+                          <span style={{ color: '#9ca3af' }}>Draft</span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="num">{money(po.grand_total)}</td>
+                    <td>{new Date(po.created_at).toLocaleString()}</td>
+                    <td><button className="btn-link" onClick={() => openDetail(po.id)}>View</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )
+        })()
       )}
     </div>
   )

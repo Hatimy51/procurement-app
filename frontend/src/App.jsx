@@ -3,7 +3,7 @@ import {
   Inbox as InboxIcon, Package, Truck, History, FileText, Upload, ClipboardList,
   PackageCheck, Receipt, TrendingUp, ShoppingCart, ChevronDown, ChevronRight,
   FileQuestion, Mail, Users as UsersIcon, LogOut, LayoutDashboard, GitCompare,
-  MapPin, Warehouse,
+  MapPin, Warehouse, MessageSquare,
 } from 'lucide-react'
 import { AuthProvider, useAuth } from './AuthContext'
 import Login from './Login'
@@ -25,6 +25,7 @@ import QuoteComparison from './QuoteComparison'
 import StoreLocations from './StoreLocations'
 import GoodsReceipt from './GoodsReceipt'
 import VendorPortal from './VendorPortal'
+import Chat from './Chat'
 
 // `roles` on each leaf item lists who may even SEE it in the sidebar.
 // Roles:
@@ -34,6 +35,7 @@ import VendorPortal from './VendorPortal'
 //   admin     — user management only
 //   store     — GRN receiving queue only (filtered to their location)
 const NAV = [
+  { type: 'item', key: 'chat', label: 'Team Chat', icon: MessageSquare, component: Chat, roles: ['purchase', 'accounts', 'manager'] },
   { type: 'item', key: 'dashboard', label: 'Executive Dashboard', icon: LayoutDashboard, component: Dashboard, roles: ['purchase', 'manager'] },
   { type: 'item', key: 'inbox', label: 'Inbox', icon: Mail, component: Inbox, roles: ['purchase', 'manager'] },
   { type: 'item', key: 'enquiries', label: 'Enquiries', icon: InboxIcon, component: EnquiryReview, roles: ['purchase', 'manager'] },

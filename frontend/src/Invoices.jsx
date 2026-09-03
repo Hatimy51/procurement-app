@@ -18,6 +18,8 @@ export default function Invoices() {
   const [view, setView] = useState('list') // 'list' | 'create' | 'detail'
   const [invoices, setInvoices] = useState([])
   const [readyQuotes, setReadyQuotes] = useState([])
+  const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState('all')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [infoMessage, setInfoMessage] = useState(null)
@@ -205,6 +207,10 @@ export default function Invoices() {
         <p style={styles.muted}>Against quote {detail.quote_number} · {detail.customer_name} · {detail.site_name}</p>
         <p style={styles.muted}>
           Created {new Date(detail.created_at).toLocaleString()}
+          {detail.created_by && <> by {detail.created_by}</>}
+          {detail.updated_by && detail.updated_by !== detail.created_by && (
+            <> · Last edited by {detail.updated_by}</>
+          )}
           {detail.issued_at && <> · Issued {new Date(detail.issued_at).toLocaleString()}</>}
         </p>
 
@@ -394,25 +400,67 @@ export default function Invoices() {
           )}
 
           <h3 style={{ marginTop: 28 }}>Invoices</h3>
+
+          {/* Search and Status Filters */}
+          {invoices.length > 0 && (
+            <div style={{ display: 'flex', gap: 10, margin: '14px 0', alignItems: 'center', flexWrap: 'wrap' }}>
+              <input
+                style={{ flex: 1, minWidth: 220, padding: '8px 12px', fontSize: 13, border: '1px solid var(--color-line)', borderRadius: 4 }}
+                placeholder="Search by Invoice #, quote #, or customer…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+              <select
+                style={{ padding: '8px 12px', fontSize: 13, border: '1px solid var(--color-line)', borderRadius: 4 }}
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+              >
+                <option value="all">All Statuses</option>
+                <option value="draft">Draft</option>
+                <option value="issued">Issued</option>
+              </select>
+            </div>
+          )}
+
           {invoices.length === 0 ? (
             <p style={styles.muted}>No invoices created yet.</p>
           ) : (
-            <table className="ledger-table">
-              <thead><tr><th>Invoice #</th><th>Quote</th><th>Customer</th><th>Status</th><th>Total</th><th>Created</th><th></th></tr></thead>
-              <tbody>
-                {invoices.map((inv) => (
-                  <tr key={inv.id}>
-                    <td className="num">{inv.invoice_number}</td>
-                    <td className="num">{inv.quote_number}</td>
-                    <td>{inv.customer_name}</td>
-                    <td><StatusBadge status={inv.status} /></td>
-                    <td className="num">{money(inv.grand_total)}</td>
-                    <td>{new Date(inv.created_at).toLocaleString()}</td>
-                    <td><button className="btn-link" onClick={() => openDetail(inv.id)}>View</button></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            (() => {
+              const qStr = search.trim().toLowerCase()
+              const filtered = invoices.filter((inv) => {
+                if (qStr) {
+                  const matchInv = inv.invoice_number?.toLowerCase().includes(qStr)
+                  const matchQ = inv.quote_number?.toLowerCase().includes(qStr)
+                  const matchCust = inv.customer_name?.toLowerCase().includes(qStr)
+                  if (!matchInv && !matchQ && !matchCust) return false
+                }
+                if (statusFilter !== 'all' && inv.status !== statusFilter) return false
+                return true
+              })
+
+              if (filtered.length === 0) {
+                return <p style={{ ...styles.muted, padding: '20px 0' }}>No invoices match your search and filter criteria.</p>
+              }
+
+              return (
+                <table className="ledger-table">
+                  <thead><tr><th>Invoice #</th><th>Quote</th><th>Customer</th><th>Status</th><th>Total</th><th>Created</th><th></th></tr></thead>
+                  <tbody>
+                    {filtered.map((inv) => (
+                      <tr key={inv.id}>
+                        <td className="num">{inv.invoice_number}</td>
+                        <td className="num">{inv.quote_number}</td>
+                        <td>{inv.customer_name}</td>
+                        <td><StatusBadge status={inv.status} /></td>
+                        <td className="num">{money(inv.grand_total)}</td>
+                        <td>{new Date(inv.created_at).toLocaleString()}</td>
+                        <td><button className="btn-link" onClick={() => openDetail(inv.id)}>View</button></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )
+            })()
           )}
         </>
       )}

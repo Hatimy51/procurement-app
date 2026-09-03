@@ -358,6 +358,10 @@ export default function EnquiryReview() {
           {detail.extraction_confidence != null && (
             <> · Extraction confidence: {Math.round(detail.extraction_confidence * 100)}%</>
           )}
+          {detail.created_by && <> · Added by {detail.created_by}</>}
+          {detail.updated_by && detail.updated_by !== detail.created_by && (
+            <> · Last edited by {detail.updated_by}</>
+          )}
         </p>
 
         {error && <div style={styles.errorBanner}>{error}</div>}

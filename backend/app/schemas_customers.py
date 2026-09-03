@@ -15,3 +15,7 @@ class CustomerOut(BaseModel):
     phone: str | None
     site_count: int
     created_at: datetime
+
+    created_by: str | None = None
+    updated_by: str | None = None
+    updated_at: datetime | None = None

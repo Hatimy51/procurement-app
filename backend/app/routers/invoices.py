@@ -7,6 +7,7 @@ from sqlalchemy import func
 
 from app.database import get_db
 from app import models
+from app.security import get_current_user
 from app.schemas_invoices import (
     ReadyQuoteOut, QuoteLineInvoiceStatus, InvoiceCreate, InvoiceDraftUpdate,
     InvoiceListItemOut, InvoiceDetailOut, InvoiceLineItemOut,
@@ -192,7 +193,7 @@ def list_invoices(db: Session = Depends(get_db)):
 
 
 @router.post("", response_model=InvoiceDetailOut)
-def create_invoice(payload: InvoiceCreate, db: Session = Depends(get_db)):
+def create_invoice(payload: InvoiceCreate, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     quote = db.query(models.Quote).filter(models.Quote.id == payload.customer_quote_id).first()
     if not quote:
         raise HTTPException(404, "Quote not found")

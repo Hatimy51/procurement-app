@@ -1,4 +1,4 @@
-﻿import { useState } from 'react'
+import { useState } from 'react'
 import { Truck, Package, Upload, CheckCircle2, AlertCircle, ChevronDown, ChevronUp, FileText, X } from 'lucide-react'
 
 const BASE = '/api/vendor-portal'
@@ -197,6 +197,8 @@ export default function VendorPortal() {
   const [err, setErr] = useState('')
   const [session, setSession] = useState(null)   // { vendor_token, supplier_name }
   const [ordersData, setOrdersData] = useState(null)
+  const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState('all')
 
   async function handleLogin(e) {
     e.preventDefault()
@@ -275,15 +277,61 @@ export default function VendorPortal() {
           </button>
         </div>
 
+        {/* Search and Status Filters */}
+        {ordersData?.orders?.length > 0 && (
+          <div style={{ display: 'flex', gap: 10, marginBottom: 18, alignItems: 'center', flexWrap: 'wrap' }}>
+            <input
+              style={{ flex: 1, minWidth: 220, padding: '8px 12px', fontSize: 13, border: '1px solid #d1d5db', borderRadius: 6 }}
+              placeholder="Search by PO #, store location, or item description…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
+            <select
+              style={{ padding: '8px 12px', fontSize: 13, border: '1px solid #d1d5db', borderRadius: 6, background: '#fff' }}
+              value={statusFilter}
+              onChange={e => setStatusFilter(e.target.value)}
+            >
+              <option value="all">All Deliveries</option>
+              <option value="pending">Goods Pending Receipt</option>
+              <option value="received">Goods Fully Received (100%)</option>
+              <option value="invoiced">Invoice Uploaded</option>
+            </select>
+          </div>
+        )}
+
         {!ordersData || ordersData.orders.length === 0 ? (
           <div style={{ textAlign: 'center', padding: 60, background: '#fff', borderRadius: 12 }}>
             <Package size={40} style={{ opacity: 0.3, marginBottom: 12 }} />
             <div style={{ color: '#9ca3af' }}>No purchase orders found for your account.</div>
           </div>
         ) : (
-          ordersData.orders.map(order => (
-            <POCard key={order.po_id} order={order} vendorToken={session.vendor_token} onRefresh={handleRefresh} />
-          ))
+          (() => {
+            const q = search.trim().toLowerCase()
+            const filtered = ordersData.orders.filter(order => {
+              if (q) {
+                const matchPO = order.po_number?.toLowerCase().includes(q)
+                const matchStore = order.store_location?.toLowerCase().includes(q)
+                const matchItem = (order.line_items || []).some(li => li.description?.toLowerCase().includes(q))
+                if (!matchPO && !matchStore && !matchItem) return false
+              }
+              if (statusFilter === 'pending' && order.lifecycle.receipt_pct >= 100) return false
+              if (statusFilter === 'received' && order.lifecycle.receipt_pct < 100) return false
+              if (statusFilter === 'invoiced' && !order.lifecycle.invoice_uploaded) return false
+              return true
+            })
+
+            if (filtered.length === 0) {
+              return (
+                <div style={{ textAlign: 'center', padding: 40, background: '#fff', borderRadius: 12, color: '#9ca3af' }}>
+                  No orders match your search and filter criteria.
+                </div>
+              )
+            }
+
+            return filtered.map(order => (
+              <POCard key={order.po_id} order={order} vendorToken={session.vendor_token} onRefresh={handleRefresh} />
+            ))
+          })()
         )}
       </div>
     </div>

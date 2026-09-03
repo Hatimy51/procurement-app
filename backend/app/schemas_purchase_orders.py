@@ -79,3 +79,7 @@ class PurchaseOrderDetailOut(BaseModel):
     total_gst: Decimal
     grand_total: Decimal
     items_price_missing: int
+
+    created_by: str | None = None
+    updated_by: str | None = None
+    updated_at: datetime | None = None

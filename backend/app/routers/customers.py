@@ -1,8 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from datetime import datetime
 
 from app.database import get_db
 from app import models
+from app.security import get_current_user
 from app.schemas_customers import CustomerCreate, CustomerOut
 
 router = APIRouter(prefix="/api/customers", tags=["customers"])
@@ -12,6 +14,7 @@ def _out(c: models.Customer) -> CustomerOut:
     return CustomerOut(
         id=c.id, name=c.name, email=c.email, phone=c.phone,
         site_count=len(c.sites), created_at=c.created_at,
+        created_by=c.created_by, updated_by=c.updated_by, updated_at=c.updated_at,
     )
 
 
@@ -22,8 +25,8 @@ def list_customers(db: Session = Depends(get_db)):
 
 
 @router.post("", response_model=CustomerOut)
-def create_customer(payload: CustomerCreate, db: Session = Depends(get_db)):
-    customer = models.Customer(name=payload.name, email=payload.email, phone=payload.phone)
+def create_customer(payload: CustomerCreate, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+    customer = models.Customer(name=payload.name, email=payload.email, phone=payload.phone, created_by=user.name)
     db.add(customer)
     db.commit()
     db.refresh(customer)
@@ -31,13 +34,15 @@ def create_customer(payload: CustomerCreate, db: Session = Depends(get_db)):
 
 
 @router.put("/{customer_id}", response_model=CustomerOut)
-def update_customer(customer_id: str, payload: CustomerCreate, db: Session = Depends(get_db)):
+def update_customer(customer_id: str, payload: CustomerCreate, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     customer = db.query(models.Customer).filter(models.Customer.id == customer_id).first()
     if not customer:
         raise HTTPException(404, "Customer not found")
     customer.name = payload.name
     customer.email = payload.email
     customer.phone = payload.phone
+    customer.updated_by = user.name
+    customer.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(customer)
     return _out(customer)

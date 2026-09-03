@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app import models
+from app.security import get_current_user
 from app.schemas_enquiry_review import (
     EnquiryItemUpdate, EnquiryDetailOut, EnquiryItemWithPrice
 )
@@ -207,12 +208,15 @@ def get_enquiry_detail(
         extraction_confidence=enquiry.extraction_confidence,
         raw_source=enquiry.raw_source or "",
         items=items_out,
+        created_by=enquiry.created_by,
+        updated_by=enquiry.updated_by,
     )
 
 
 @router.put("/{enquiry_id}/items/{item_id}")
 def update_enquiry_item(
-    enquiry_id: str, item_id: str, payload: EnquiryItemUpdate, db: Session = Depends(get_db)
+    enquiry_id: str, item_id: str, payload: EnquiryItemUpdate,
+    db: Session = Depends(get_db), user: models.User = Depends(get_current_user),
 ):
     """
     The human-correction step (v1 flow step 3) — Purchaser fixes whatever the
@@ -229,17 +233,23 @@ def update_enquiry_item(
 
     for field, value in payload.model_dump().items():
         setattr(item, field, value)
+
+    enquiry = item.enquiry
+    enquiry.updated_by = user.name
+    enquiry.updated_at = datetime.utcnow()
     db.commit()
 
     return _item_out(db, item)
 
 
 @router.post("/{enquiry_id}/mark-reviewed")
-def mark_reviewed(enquiry_id: str, db: Session = Depends(get_db)):
+def mark_reviewed(enquiry_id: str, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     """Advances the enquiry past the human-review gate once the Purchaser is satisfied."""
     enquiry = db.query(models.Enquiry).filter(models.Enquiry.id == enquiry_id).first()
     if not enquiry:
         raise HTTPException(404, "Enquiry not found")
     enquiry.status = models.EnquiryStatus.reviewed
+    enquiry.updated_by = user.name
+    enquiry.updated_at = datetime.utcnow()
     db.commit()
     return {"id": enquiry.id, "status": enquiry.status.value}

@@ -10,7 +10,7 @@ from app.routers import (
     products, prices, enquiries, enquiry_review, diagnostics, imports,
     suppliers, rfqs, supplier_quotes, quotes, purchase_orders,
     delivery_challans, goods_receipt_notes, invoices, vendor_invoices,
-    inbox, customers, auth, dashboard, accounting_sync,
+    inbox, customers, auth, dashboard, accounting_sync, chat
 )
 from app.routers import store_locations, vendor_portal
 
@@ -44,6 +44,9 @@ app.include_router(vendor_portal.router)
 
 # Store locations: purchase + manager can manage; all authenticated users can read (for dropdowns)
 app.include_router(store_locations.router)
+
+# Chat: all authenticated users can read and write
+app.include_router(chat.router)
 
 # Every screen except Invoices belongs to Purchase (Manager can view,
 # nobody but Purchase can edit) — see security.py for exactly what that

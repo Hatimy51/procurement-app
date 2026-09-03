@@ -46,6 +46,10 @@ export const api = {
   createUser: (payload) => request('/auth/users', { method: 'POST', body: JSON.stringify(payload) }),
   deleteUser: (id) => request(`/auth/users/${id}`, { method: 'DELETE' }),
 
+  // Chat
+  listChatMessages: () => request('/chat/messages'),
+  sendChatMessage: (message) => request('/chat/messages', { method: 'POST', body: JSON.stringify({ message }) }),
+
   listProducts: (search) =>
     request(`/products${search ? `?search=${encodeURIComponent(search)}` : ''}`),
   createProduct: (product) =>

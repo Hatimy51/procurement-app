@@ -4,6 +4,8 @@ import PageHeader from './PageHeader'
 
 export default function QuoteHistory() {
   const [quotes, setQuotes] = useState([])
+  const [search, setSearch] = useState('')
+  const [supplierFilter, setSupplierFilter] = useState('all')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [infoMessage, setInfoMessage] = useState(null)
@@ -211,34 +213,71 @@ export default function QuoteHistory() {
       {error && <div style={styles.errorBanner}>{error}</div>}
       {infoMessage && <div style={styles.infoBanner}>{infoMessage}</div>}
 
+      {/* Search and Supplier Filter */}
+      {quotes.length > 0 && (
+        <div style={{ display: 'flex', gap: 10, margin: '14px 0', alignItems: 'center', flexWrap: 'wrap' }}>
+          <input
+            style={{ flex: 1, minWidth: 220, padding: '8px 12px', fontSize: 13, border: '1px solid var(--color-line)', borderRadius: 4 }}
+            placeholder="Search quotes by supplier name…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          <select
+            style={{ padding: '8px 12px', fontSize: 13, border: '1px solid var(--color-line)', borderRadius: 4 }}
+            value={supplierFilter}
+            onChange={(e) => setSupplierFilter(e.target.value)}
+          >
+            <option value="all">All Suppliers</option>
+            {[...new Set(quotes.map((q) => q.supplier_name).filter(Boolean))].map((sup) => (
+              <option key={sup} value={sup}>{sup}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
       {loading ? (
         <p>Loading…</p>
       ) : quotes.length === 0 ? (
         <p style={styles.muted}>No quotes ingested yet — do that from the Suppliers &amp; RFQs tab.</p>
       ) : (
-        <table style={styles.table}>
-          <thead>
-            <tr>
-              <th style={styles.th}>Supplier</th>
-              <th style={styles.th}>Items</th>
-              <th style={styles.th}>Received</th>
-              <th style={styles.th}></th>
-            </tr>
-          </thead>
-          <tbody>
-            {quotes.map((q) => (
-              <tr key={q.id} style={styles.tr}>
-                <td style={styles.td}>{q.supplier_name}</td>
-                <td style={styles.td}>{q.item_count}</td>
-                <td style={styles.td}>{new Date(q.created_at).toLocaleString()}</td>
-                <td style={styles.td}>
-                  <button style={styles.linkButton} onClick={() => openDetail(q.id)}>View</button>
-                  <button style={styles.dangerLinkButton} onClick={() => handleDeleteQuote(q.id)}>Delete</button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        (() => {
+          const qStr = search.trim().toLowerCase()
+          const filtered = quotes.filter((q) => {
+            if (qStr && !q.supplier_name?.toLowerCase().includes(qStr)) return false
+            if (supplierFilter !== 'all' && q.supplier_name !== supplierFilter) return false
+            return true
+          })
+
+          if (filtered.length === 0) {
+            return <p style={{ ...styles.muted, padding: '20px 0' }}>No ingested quotes match your search or filter.</p>
+          }
+
+          return (
+            <table style={styles.table}>
+              <thead>
+                <tr>
+                  <th style={styles.th}>Supplier</th>
+                  <th style={styles.th}>Items</th>
+                  <th style={styles.th}>Received</th>
+                  <th style={styles.th}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((q) => (
+                  <tr key={q.id} style={styles.tr}>
+                    <td style={styles.td}>{q.supplier_name}</td>
+                    <td style={styles.td}>{q.item_count}</td>
+                    <td style={styles.td}>{new Date(q.created_at).toLocaleString()}</td>
+                    <td style={styles.td}>
+                      <button style={styles.linkButton} onClick={() => openDetail(q.id)}>View</button>
+                      <button style={styles.dangerLinkButton} onClick={() => handleDeleteQuote(q.id)}>Delete</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )
+        })()
       )}
     </div>
   )

@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app import models
+from app.security import get_current_user
 from app.schemas_purchase_orders import (
     PurchaseOrderCreate, PurchaseOrderDraftUpdate,
     PurchaseOrderListItemOut, PurchaseOrderDetailOut, POLineItemOut,
@@ -66,6 +67,9 @@ def _detail_out(po: models.PurchaseOrder) -> PurchaseOrderDetailOut:
         erp_payment_status=po.erp_payment_status or "pending",
         notes=po.notes,
         created_at=po.created_at,
+        created_by=po.created_by,
+        updated_by=po.updated_by,
+        updated_at=po.updated_at,
         sent_at=po.sent_at,
         items=[
             POLineItemOut(
@@ -124,6 +128,7 @@ def create_purchase_order(payload: PurchaseOrderCreate, db: Session = Depends(ge
         store_location_id=payload.store_location_id,
         notes=payload.notes,
         status=models.POStatus.draft,
+        created_by=user.name,
     )
     db.add(po)
     db.flush()
@@ -161,7 +166,7 @@ def get_purchase_order(po_id: str, db: Session = Depends(get_db)):
 
 
 @router.put("/{po_id}", response_model=PurchaseOrderDetailOut)
-def update_purchase_order_draft(po_id: str, payload: PurchaseOrderDraftUpdate, db: Session = Depends(get_db)):
+def update_purchase_order_draft(po_id: str, payload: PurchaseOrderDraftUpdate, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     """Save Draft — notes and the full item list are replaced together.
     Only allowed while still a draft. Items are replaced wholesale (delete
     + recreate) rather than diffed, since a PO builder lets you freely
@@ -189,10 +194,12 @@ def update_purchase_order_draft(po_id: str, payload: PurchaseOrderDraftUpdate, d
             unit_price=item.unit_price,
         ))
 
+    po.updated_by = user.name
+    po.updated_at = datetime.utcnow()
+
     db.commit()
     db.refresh(po)
     return _detail_out(po)
-
 
 @router.post("/{po_id}/mark-sent", response_model=PurchaseOrderDetailOut)
 def mark_sent(po_id: str, db: Session = Depends(get_db)):

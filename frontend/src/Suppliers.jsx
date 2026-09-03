@@ -5,6 +5,8 @@ import PageHeader from './PageHeader'
 export default function Suppliers() {
   const [suppliers, setSuppliers] = useState([])
   const [products, setProducts] = useState([])
+  const [search, setSearch] = useState('')
+  const [categoryFilter, setCategoryFilter] = useState('all')
   const [error, setError] = useState(null)
   const [infoMessage, setInfoMessage] = useState(null)
 
@@ -226,38 +228,87 @@ export default function Suppliers() {
         </form>
       )}
 
+      {/* Search and Category Filter */}
+      {suppliers.length > 0 && (
+        <div style={{ display: 'flex', gap: 10, margin: '14px 0', alignItems: 'center', flexWrap: 'wrap' }}>
+          <input
+            style={{ flex: 1, minWidth: 220, padding: '8px 12px', fontSize: 13, border: '1px solid var(--color-line)', borderRadius: 4 }}
+            placeholder="Search suppliers by name, email, phone, or GST…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          <select
+            style={{ padding: '8px 12px', fontSize: 13, border: '1px solid var(--color-line)', borderRadius: 4 }}
+            value={categoryFilter}
+            onChange={(e) => setCategoryFilter(e.target.value)}
+          >
+            <option value="all">All Categories</option>
+            {categories.map((cat) => (
+              <option key={cat} value={cat}>{cat}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
       {suppliers.length === 0 ? (
         <p style={styles.muted}>No suppliers yet — add one to start creating RFQs.</p>
       ) : (
-        <table className="ledger-table">
-          <thead>
-            <tr><th>Name</th><th>Contact</th><th>Linked to</th><th></th></tr>
-          </thead>
-          <tbody>
-            {suppliers.map((s) => {
-              const linkCount = (s.linked_product_ids?.length || 0) + (s.linked_categories?.length || 0)
-              return (
-                <tr key={s.id}>
-                  <td>{s.name}</td>
-                  <td className="num">
-                    {s.email && <div>{s.email}</div>}
-                    {s.phone && <div>{s.phone}</div>}
-                  </td>
-                  <td style={styles.muted}>
-                    {linkCount > 0
-                      ? `${s.linked_categories?.length || 0} categor${s.linked_categories?.length === 1 ? 'y' : 'ies'}, ${s.linked_product_ids?.length || 0} product(s)`
-                      : '—'}
-                  </td>
-                  <td>
-                    <button className="btn-link" style={{ fontWeight: 600, color: '#4f46e5' }} onClick={() => openSupplierLedger(s)}>Orders &amp; Ledger</button>
-                    <button className="btn-link" style={{ marginLeft: 8 }} onClick={() => openEditSupplierForm(s)}>Edit</button>
-                    <button className="btn-link btn-link-danger" style={{ marginLeft: 8 }} onClick={() => handleDeleteSupplier(s)}>Delete</button>
-                  </td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
+        (() => {
+          const q = search.trim().toLowerCase()
+          const filtered = suppliers.filter((s) => {
+            if (q) {
+              const matchName = s.name?.toLowerCase().includes(q)
+              const matchEmail = s.email?.toLowerCase().includes(q)
+              const matchPhone = s.phone?.toLowerCase().includes(q)
+              const matchGST = s.gst_number?.toLowerCase().includes(q)
+              if (!matchName && !matchEmail && !matchPhone && !matchGST) return false
+            }
+            if (categoryFilter !== 'all' && !(s.linked_categories || []).includes(categoryFilter)) {
+              return false
+            }
+            return true
+          })
+
+          if (filtered.length === 0) {
+            return <p style={{ ...styles.muted, padding: '20px 0' }}>No suppliers match your search or category filter.</p>
+          }
+
+          return (
+            <table className="ledger-table">
+              <thead>
+                <tr><th>Name</th><th>Contact &amp; GST</th><th>Linked to</th><th>Added By</th><th></th></tr>
+              </thead>
+              <tbody>
+                {filtered.map((s) => {
+                  const linkCount = (s.linked_product_ids?.length || 0) + (s.linked_categories?.length || 0)
+                  return (
+                    <tr key={s.id}>
+                      <td>
+                        <strong>{s.name}</strong>
+                        {s.gst_number && <div style={{ fontSize: 11, color: '#6b7280' }}>GST: {s.gst_number}</div>}
+                      </td>
+                      <td className="num">
+                        {s.email && <div>{s.email}</div>}
+                        {s.phone && <div>{s.phone}</div>}
+                      </td>
+                      <td style={styles.muted}>
+                        {linkCount > 0
+                          ? `${s.linked_categories?.length || 0} categor${s.linked_categories?.length === 1 ? 'y' : 'ies'}, ${s.linked_product_ids?.length || 0} product(s)`
+                          : '—'}
+                      </td>
+                      <td style={styles.muted}>{s.created_by || '—'}</td>
+                      <td>
+                        <button className="btn-link" style={{ fontWeight: 600, color: '#4f46e5' }} onClick={() => openSupplierLedger(s)}>Orders &amp; Ledger</button>
+                        <button className="btn-link" style={{ marginLeft: 8 }} onClick={() => openEditSupplierForm(s)}>Edit</button>
+                        <button className="btn-link btn-link-danger" style={{ marginLeft: 8 }} onClick={() => handleDeleteSupplier(s)}>Delete</button>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          )
+        })()
       )}
 
       {/* Active Orders & Payment Ledger Modal */}

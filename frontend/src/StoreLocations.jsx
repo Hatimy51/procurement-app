@@ -1,4 +1,4 @@
-﻿import { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { MapPin, Plus, Link, Trash2, User } from 'lucide-react'
 
 const BASE = '/api'
@@ -134,6 +134,8 @@ function LinkUserModal({ location, storeUsers, onLinked, onClose }) {
 export default function StoreLocations() {
   const [locations, setLocations] = useState([])
   const [allUsers, setAllUsers] = useState([])
+  const [search, setSearch] = useState('')
+  const [areaFilter, setAreaFilter] = useState('all')
   const [loading, setLoading] = useState(true)
   const [showCreate, setShowCreate] = useState(false)
   const [linkTarget, setLinkTarget] = useState(null)
@@ -165,10 +167,25 @@ export default function StoreLocations() {
     try {
       await apiFetch(`/store-locations/${locId}`, { method: 'DELETE' })
       setLocations(prev => prev.filter(l => l.id !== locId))
-    } catch (ex) {
-      alert(ex.message)
+    } catch (e) {
+      alert(e.message)
     }
   }
+
+  const q = search.trim().toLowerCase()
+  const filtered = locations.filter(loc => {
+    if (q) {
+      const matchName = loc.name?.toLowerCase().includes(q)
+      const matchArea = loc.area?.toLowerCase().includes(q)
+      const matchAddr = loc.address?.toLowerCase().includes(q)
+      const matchUser = (loc.linked_users || []).some(u => u.name?.toLowerCase().includes(q))
+      if (!matchName && !matchArea && !matchAddr && !matchUser) return false
+    }
+    if (areaFilter !== 'all' && loc.area !== areaFilter) return false
+    return true
+  })
+
+  const uniqueAreas = [...new Set(locations.map(l => l.area).filter(Boolean))]
 
   if (loading) return <div style={{ padding: 40, textAlign: 'center', color: '#9ca3af' }}>Loading store locations…</div>
 
@@ -181,6 +198,28 @@ export default function StoreLocations() {
         </button>
       </div>
 
+      {/* Search and Area Filter */}
+      {locations.length > 0 && (
+        <div style={{ display: 'flex', gap: 10, marginBottom: 18, alignItems: 'center', flexWrap: 'wrap' }}>
+          <input
+            style={{ flex: 1, minWidth: 220, padding: '8px 12px', fontSize: 13, border: '1px solid #d1d5db', borderRadius: 6 }}
+            placeholder="Search stores by name, area, address, or staff…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
+          <select
+            style={{ padding: '8px 12px', fontSize: 13, border: '1px solid #d1d5db', borderRadius: 6, background: '#fff' }}
+            value={areaFilter}
+            onChange={e => setAreaFilter(e.target.value)}
+          >
+            <option value="all">All Areas</option>
+            {uniqueAreas.map(area => (
+              <option key={area} value={area}>{area}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
       {showCreate && (
         <CreateForm onCreated={handleCreated} onCancel={() => setShowCreate(false)} />
       )}
@@ -190,8 +229,12 @@ export default function StoreLocations() {
           <MapPin size={40} style={{ marginBottom: 12, opacity: 0.3 }} />
           <div>No store locations yet. Create one to link it to POs and store users.</div>
         </div>
+      ) : filtered.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: 40, color: '#9ca3af' }}>
+          No store locations match your search or filter.
+        </div>
       ) : (
-        locations.map(loc => (
+        filtered.map(loc => (
           <div key={loc.id} style={s.card}>
             <div style={s.cardHead}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>

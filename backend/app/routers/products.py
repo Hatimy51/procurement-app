@@ -1,9 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
+from datetime import datetime
 
 from app.database import get_db
 from app import models, schemas
+from app.security import get_current_user
 
 router = APIRouter(prefix="/api/products", tags=["products"])
 
@@ -28,8 +30,8 @@ def list_products(
 
 
 @router.post("", response_model=schemas.ProductOut)
-def create_product(payload: schemas.ProductCreate, db: Session = Depends(get_db)):
-    product = models.Product(**payload.model_dump())
+def create_product(payload: schemas.ProductCreate, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+    product = models.Product(**payload.model_dump(), created_by=user.name)
     db.add(product)
     db.commit()
     db.refresh(product)
@@ -45,12 +47,14 @@ def get_product(product_id: str, db: Session = Depends(get_db)):
 
 
 @router.put("/{product_id}", response_model=schemas.ProductOut)
-def update_product(product_id: str, payload: schemas.ProductCreate, db: Session = Depends(get_db)):
+def update_product(product_id: str, payload: schemas.ProductCreate, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     product = db.query(models.Product).filter(models.Product.id == product_id).first()
     if not product:
         raise HTTPException(404, "Product not found")
     for field, value in payload.model_dump().items():
         setattr(product, field, value)
+    product.updated_by = user.name
+    product.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(product)
     return product

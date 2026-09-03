@@ -17,6 +17,8 @@ export default function DeliveryChallans() {
   const [view, setView] = useState('list') // 'list' | 'create' | 'detail'
   const [dcs, setDcs] = useState([])
   const [readyQuotes, setReadyQuotes] = useState([])
+  const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState('all')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [infoMessage, setInfoMessage] = useState(null)
@@ -199,6 +201,10 @@ export default function DeliveryChallans() {
         </p>
         <p style={styles.muted}>
           Created {new Date(detail.created_at).toLocaleString()}
+          {detail.created_by && <> by {detail.created_by}</>}
+          {detail.updated_by && detail.updated_by !== detail.created_by && (
+            <> · Last edited by {detail.updated_by}</>
+          )}
           {detail.dispatched_at && <> · Dispatched {new Date(detail.dispatched_at).toLocaleString()}</>}
         </p>
 
@@ -390,25 +396,67 @@ export default function DeliveryChallans() {
           )}
 
           <h3 style={{ marginTop: 28 }}>Challans</h3>
+
+          {/* Search and Status Filters */}
+          {dcs.length > 0 && (
+            <div style={{ display: 'flex', gap: 10, margin: '14px 0', alignItems: 'center', flexWrap: 'wrap' }}>
+              <input
+                style={{ flex: 1, minWidth: 220, padding: '8px 12px', fontSize: 13, border: '1px solid var(--color-line)', borderRadius: 4 }}
+                placeholder="Search by DC #, quote #, customer, or site…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+              <select
+                style={{ padding: '8px 12px', fontSize: 13, border: '1px solid var(--color-line)', borderRadius: 4 }}
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+              >
+                <option value="all">All Statuses</option>
+                <option value="draft">Draft</option>
+                <option value="dispatched">Dispatched</option>
+              </select>
+            </div>
+          )}
+
           {dcs.length === 0 ? (
             <p style={styles.muted}>No delivery challans created yet.</p>
           ) : (
-            <table className="ledger-table">
-              <thead><tr><th>DC #</th><th>Quote #</th><th>Customer</th><th>Status</th><th>Items</th><th>Created</th><th></th></tr></thead>
-              <tbody>
-                {dcs.map((dc) => (
-                  <tr key={dc.id}>
-                    <td className="num">{dc.dc_number}</td>
-                    <td className="num">{dc.quote_number}</td>
-                    <td>{dc.customer_name}</td>
-                    <td><StatusBadge status={dc.status} /></td>
-                    <td className="num">{dc.item_count}</td>
-                    <td>{new Date(dc.created_at).toLocaleString()}</td>
-                    <td><button className="btn-link" onClick={() => openDetail(dc.id)}>View</button></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            (() => {
+              const qStr = search.trim().toLowerCase()
+              const filtered = dcs.filter((dc) => {
+                if (qStr) {
+                  const matchDC = dc.dc_number?.toLowerCase().includes(qStr)
+                  const matchQ = dc.quote_number?.toLowerCase().includes(qStr)
+                  const matchCust = dc.customer_name?.toLowerCase().includes(qStr)
+                  if (!matchDC && !matchQ && !matchCust) return false
+                }
+                if (statusFilter !== 'all' && dc.status !== statusFilter) return false
+                return true
+              })
+
+              if (filtered.length === 0) {
+                return <p style={{ ...styles.muted, padding: '20px 0' }}>No delivery challans match your search and filter criteria.</p>
+              }
+
+              return (
+                <table className="ledger-table">
+                  <thead><tr><th>DC #</th><th>Quote #</th><th>Customer</th><th>Status</th><th>Items</th><th>Created</th><th></th></tr></thead>
+                  <tbody>
+                    {filtered.map((dc) => (
+                      <tr key={dc.id}>
+                        <td className="num">{dc.dc_number}</td>
+                        <td className="num">{dc.quote_number}</td>
+                        <td>{dc.customer_name}</td>
+                        <td><StatusBadge status={dc.status} /></td>
+                        <td className="num">{dc.item_count}</td>
+                        <td>{new Date(dc.created_at).toLocaleString()}</td>
+                        <td><button className="btn-link" onClick={() => openDetail(dc.id)}>View</button></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )
+            })()
           )}
         </>
       )}

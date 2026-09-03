@@ -81,3 +81,7 @@ class DeliveryChallanDetailOut(BaseModel):
     created_at: datetime
     dispatched_at: datetime | None
     items: list[DCLineItemOut]
+
+    created_by: str | None = None
+    updated_by: str | None = None
+    updated_at: datetime | None = None

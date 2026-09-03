@@ -1,5 +1,6 @@
 """Additions to schemas.py for the Enquiry Review screen — kept in a
 separate file so the original schemas.py doesn't need risky edits."""
+from datetime import datetime
 from decimal import Decimal
 from pydantic import BaseModel
 
@@ -40,3 +41,7 @@ class EnquiryDetailOut(BaseModel):
     extraction_confidence: Decimal | None
     raw_source: str
     items: list[EnquiryItemWithPrice]
+
+    created_by: str | None = None
+    updated_by: str | None = None
+    updated_at: datetime | None = None

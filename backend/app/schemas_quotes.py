@@ -56,6 +56,10 @@ class QuoteDetailOut(BaseModel):
     grand_total: Decimal
     items_price_missing: int
 
+    created_by: str | None = None
+    updated_by: str | None = None
+    updated_at: datetime | None = None
+
 
 class QuoteLineItemUpdate(BaseModel):
     id: str

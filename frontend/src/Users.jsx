@@ -6,6 +6,8 @@ const ROLE_LABEL = { purchase: 'Purchase', accounts: 'Accounts', manager: 'Manag
 
 export default function Users() {
   const [users, setUsers] = useState([])
+  const [search, setSearch] = useState('')
+  const [roleFilter, setRoleFilter] = useState('all')
   const [error, setError] = useState(null)
   const [infoMessage, setInfoMessage] = useState(null)
 
@@ -92,19 +94,58 @@ export default function Users() {
         </form>
       )}
 
-      <table className="ledger-table">
-        <thead><tr><th>Name</th><th>Email</th><th>Role</th><th></th></tr></thead>
-        <tbody>
-          {users.map((u) => (
-            <tr key={u.id}>
-              <td>{u.name}</td>
-              <td>{u.email}</td>
-              <td><span className="stamp stamp-accent">{ROLE_LABEL[u.role] || u.role}</span></td>
-              <td><button className="btn-link btn-link-danger" onClick={() => handleDelete(u)}>Remove</button></td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      {/* Search and Role Filter */}
+      {users.length > 0 && (
+        <div style={{ display: 'flex', gap: 10, margin: '14px 0', alignItems: 'center', flexWrap: 'wrap' }}>
+          <input
+            style={{ flex: 1, minWidth: 220, padding: '8px 12px', fontSize: 13, border: '1px solid var(--color-line)', borderRadius: 4 }}
+            placeholder="Search users by name or email…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          <select
+            style={{ padding: '8px 12px', fontSize: 13, border: '1px solid var(--color-line)', borderRadius: 4 }}
+            value={roleFilter}
+            onChange={(e) => setRoleFilter(e.target.value)}
+          >
+            <option value="all">All Roles</option>
+            <option value="manager">Manager</option>
+            <option value="admin">Admin</option>
+            <option value="purchase">Purchase</option>
+            <option value="accounts">Accounts</option>
+            <option value="store">Store</option>
+          </select>
+        </div>
+      )}
+
+      {(() => {
+        const qStr = search.trim().toLowerCase()
+        const filtered = users.filter((u) => {
+          if (qStr && !u.name?.toLowerCase().includes(qStr) && !u.email?.toLowerCase().includes(qStr)) return false
+          if (roleFilter !== 'all' && u.role !== roleFilter) return false
+          return true
+        })
+
+        if (filtered.length === 0) {
+          return <p style={{ color: 'var(--color-muted)', fontSize: 13, padding: '16px 0' }}>No users match your search and filter criteria.</p>
+        }
+
+        return (
+          <table className="ledger-table">
+            <thead><tr><th>Name</th><th>Email</th><th>Role</th><th></th></tr></thead>
+            <tbody>
+              {filtered.map((u) => (
+                <tr key={u.id}>
+                  <td>{u.name}</td>
+                  <td>{u.email}</td>
+                  <td><span className="stamp stamp-accent">{ROLE_LABEL[u.role] || u.role}</span></td>
+                  <td><button className="btn-link btn-link-danger" onClick={() => handleDelete(u)}>Remove</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )
+      })()}
     </div>
   )
 }

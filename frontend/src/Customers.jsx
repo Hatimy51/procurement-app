@@ -4,6 +4,7 @@ import PageHeader from './PageHeader'
 
 export default function Customers() {
   const [customers, setCustomers] = useState([])
+  const [search, setSearch] = useState('')
   const [error, setError] = useState(null)
   const [infoMessage, setInfoMessage] = useState(null)
 
@@ -117,31 +118,63 @@ export default function Customers() {
         </form>
       )}
 
+      {/* Search Bar */}
+      {customers.length > 0 && (
+        <div style={{ margin: '14px 0' }}>
+          <input
+            style={{ width: '100%', boxSizing: 'border-box', padding: '8px 12px', fontSize: 13, border: '1px solid var(--color-line)', borderRadius: 4 }}
+            placeholder="Search customers by name, email, or phone…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+      )}
+
       {customers.length === 0 ? (
         <p style={styles.muted}>No customers yet.</p>
       ) : (
-        <table className="ledger-table">
-          <thead>
-            <tr><th>Name</th><th>Contact</th><th>Sites</th><th></th></tr>
-          </thead>
-          <tbody>
-            {customers.map((c) => (
-              <tr key={c.id}>
-                <td>{c.name}</td>
-                <td className="num">
-                  {c.email && <div>{c.email}</div>}
-                  {c.phone && <div>{c.phone}</div>}
-                  {!c.email && !c.phone && '—'}
-                </td>
-                <td className="num">{c.site_count}</td>
-                <td>
-                  <button className="btn-link" onClick={() => openEditForm(c)}>Edit</button>
-                  <button className="btn-link btn-link-danger" style={{ marginLeft: 8 }} onClick={() => handleDelete(c)}>Delete</button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        (() => {
+          const qStr = search.trim().toLowerCase()
+          const filtered = customers.filter((c) => {
+            if (qStr) {
+              const matchName = c.name?.toLowerCase().includes(qStr)
+              const matchEmail = c.email?.toLowerCase().includes(qStr)
+              const matchPhone = c.phone?.toLowerCase().includes(qStr)
+              if (!matchName && !matchEmail && !matchPhone) return false
+            }
+            return true
+          })
+
+          if (filtered.length === 0) {
+            return <p style={{ ...styles.muted, padding: '16px 0' }}>No customers match your search query.</p>
+          }
+
+          return (
+            <table className="ledger-table">
+              <thead>
+                <tr><th>Name</th><th>Contact</th><th>Sites</th><th>Added By</th><th></th></tr>
+              </thead>
+              <tbody>
+                {filtered.map((c) => (
+                  <tr key={c.id}>
+                    <td>{c.name}</td>
+                    <td className="num">
+                      {c.email && <div>{c.email}</div>}
+                      {c.phone && <div>{c.phone}</div>}
+                      {!c.email && !c.phone && '—'}
+                    </td>
+                    <td className="num">{c.site_count}</td>
+                    <td style={{ color: 'var(--color-muted)', fontSize: 13 }}>{c.created_by || '—'}</td>
+                    <td>
+                      <button className="btn-link" onClick={() => openEditForm(c)}>Edit</button>
+                      <button className="btn-link btn-link-danger" style={{ marginLeft: 8 }} onClick={() => handleDelete(c)}>Delete</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )
+        })()
       )}
     </div>
   )

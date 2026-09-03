@@ -1,9 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
+from datetime import datetime
 
 from app.database import get_db
 from app import models
+from app.security import get_current_user
 from app.linking import replace_supplier_links, get_linked_supplier_ids_for_products
 
 router = APIRouter(prefix="/api/suppliers", tags=["suppliers"])
@@ -93,13 +95,8 @@ def get_supplier_ledger(supplier_id: str, db: Session = Depends(get_db)):
 
 
 @router.post("")
-def create_supplier(payload: SupplierCreate, db: Session = Depends(get_db)):
-    supplier = models.Supplier(
-        name=payload.name,
-        email=payload.email,
-        phone=payload.phone,
-        gst_number=payload.gst_number,
-    )
+def create_supplier(payload: SupplierCreate, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+    supplier = models.Supplier(name=payload.name, email=payload.email, phone=payload.phone, gst_number=payload.gst_number, created_by=user.name)
     db.add(supplier)
     db.flush()  # get supplier.id before creating links
     replace_supplier_links(db, supplier.id, payload.linked_product_ids, payload.linked_categories)
@@ -109,7 +106,7 @@ def create_supplier(payload: SupplierCreate, db: Session = Depends(get_db)):
 
 
 @router.put("/{supplier_id}")
-def update_supplier(supplier_id: str, payload: SupplierCreate, db: Session = Depends(get_db)):
+def update_supplier(supplier_id: str, payload: SupplierCreate, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     supplier = db.query(models.Supplier).filter(models.Supplier.id == supplier_id).first()
     if not supplier:
         raise HTTPException(404, "Supplier not found")
@@ -117,6 +114,8 @@ def update_supplier(supplier_id: str, payload: SupplierCreate, db: Session = Dep
     supplier.email = payload.email
     supplier.phone = payload.phone
     supplier.gst_number = payload.gst_number
+    supplier.updated_by = user.name
+    supplier.updated_at = datetime.utcnow()
     replace_supplier_links(db, supplier_id, payload.linked_product_ids, payload.linked_categories)
     db.commit()
     db.refresh(supplier)

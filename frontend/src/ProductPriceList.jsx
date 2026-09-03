@@ -385,6 +385,7 @@ export default function ProductPriceList() {
               <th style={styles.th}>Unit</th>
               <th style={styles.th}>GST %</th>
               <th style={styles.th}>Latest Price</th>
+              <th style={styles.th}>Added By</th>
               <th style={styles.th}></th>
             </tr>
           </thead>
@@ -416,6 +417,7 @@ export default function ProductPriceList() {
                         <span style={styles.missingPrice}>Price Missing</span>
                       )}
                     </td>
+                    <td style={{ ...styles.td, color: 'var(--color-muted)' }}>{product.created_by || '—'}</td>
                     <td style={{ ...styles.td, whiteSpace: 'nowrap' }}>
                       <button style={styles.linkButton} onClick={() => openEditForm(product)}>
                         Edit
@@ -431,7 +433,7 @@ export default function ProductPriceList() {
 
                   {expandedId === product.id && (
                     <tr>
-                      <td colSpan={8} style={styles.subRow}>
+                      <td colSpan={9} style={styles.subRow}>
                         {!history[product.id] ? (
                           <span style={styles.muted}>Loading history…</span>
                         ) : history[product.id].length === 0 ? (

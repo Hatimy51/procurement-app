@@ -90,3 +90,7 @@ class InvoiceDetailOut(BaseModel):
     erp_sync_status: str | None = None
     erp_payment_status: str | None = None
     erp_synced_at: datetime | None = None
+
+    created_by: str | None = None
+    updated_by: str | None = None
+    updated_at: datetime | None = None

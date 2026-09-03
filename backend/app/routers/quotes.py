@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app import models
 from app.security import get_current_user
+from app.security import get_current_user
 from app.schemas_quotes import (
     ReadyEnquiryOut, QuoteListItemOut, QuoteDetailOut, QuoteLineItemOut,
     QuoteDraftUpdate,
@@ -171,7 +172,7 @@ def get_quote_detail(quote_id: str, db: Session = Depends(get_db)):
 
 
 @router.put("/{quote_id}", response_model=QuoteDetailOut)
-def update_quote_draft(quote_id: str, payload: QuoteDraftUpdate, db: Session = Depends(get_db)):
+def update_quote_draft(quote_id: str, payload: QuoteDraftUpdate, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     """The 'Save Draft' action — updates notes and any edited line-item
     prices in one call. Only allowed while the quote is still a draft;
     approved/sent quotes are locked (use revert-to-draft first)."""

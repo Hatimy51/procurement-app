@@ -1,4 +1,4 @@
-﻿"""
+"""
 Vendor Self-Service Portal — public-facing endpoints.
 
 Vendors log in with their registered Email OR GST number.
@@ -133,7 +133,7 @@ def get_vendor_orders(
                 for li in po.line_items
             ],
             "lifecycle": {
-                "po_sent": po.sent_at is not None,
+                "po_sent": po.status == models.POStatus.sent or po.sent_at is not None,
                 "receipt_pct": receipt_pct,
                 "invoice_uploaded": len(invoice_docs) > 0,
                 "payment_status": po.erp_payment_status or "pending",

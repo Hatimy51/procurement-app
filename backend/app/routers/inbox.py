@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app import models
+from app.security import get_current_user
 from app import google_oauth
 from app.document_readers import extract_text_from_upload
 from app.extraction.base import get_extraction_service, CLASSIFICATION_CATEGORIES
@@ -141,7 +142,7 @@ def _build_processing_text(access_token: str, msg: dict) -> tuple[str, list[str]
 
 
 @router.post("/scan", response_model=ScanResultOut)
-def scan_inbox(db: Session = Depends(get_db)):
+def scan_inbox(db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     """
     Pulls recent messages since the last scan, classifies each one, and
     routes it:
@@ -197,7 +198,10 @@ def scan_inbox(db: Session = Depends(get_db)):
 
         if category == "new_enquiry":
             try:
-                enquiry = _ingest_from_text(None, None, text_for_classification, db, source="gmail")
+                enquiry = _ingest_from_text(
+                    None, None, text_for_classification, db, source="gmail",
+                    created_by=f"Gmail (scanned by {user.name})",
+                )
                 related_enquiry_id = enquiry.id
                 outcome = "enquiry_created"
                 enquiries_created += 1

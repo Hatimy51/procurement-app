@@ -7,6 +7,7 @@ from sqlalchemy import func
 
 from app.database import get_db
 from app import models
+from app.security import get_current_user
 from app.schemas_delivery_challans import (
     ReadyQuoteOut, QuoteLineDeliveryStatus, DeliveryChallanCreate,
     DeliveryChallanDraftUpdate, DeliveryChallanListItemOut, DeliveryChallanDetailOut,
@@ -52,25 +53,19 @@ def _line_status(db: Session, qli: models.QuoteLineItem) -> QuoteLineDeliverySta
 
 
 def _detail_out(dc: models.DeliveryChallan) -> DeliveryChallanDetailOut:
-    quote = dc.customer_quote
-    enquiry = quote.enquiry if quote else None
-    customer_name = "Unknown customer"
-    site_name = "Unknown site"
-    if enquiry and enquiry.site:
-        customer_name = enquiry.site.customer.name if enquiry.site.customer else "Unknown customer"
-        site_name = enquiry.site.name
     return DeliveryChallanDetailOut(
         id=dc.id,
         dc_number=dc.dc_number,
-        status=dc.status.value if hasattr(dc.status, "value") else dc.status,
-        customer_quote_id=quote.id if quote else "",
-        quote_number=quote.quote_number if quote else "—",
-        customer_name=customer_name,
-        site_name=site_name,
-        vehicle_number=dc.vehicle_number,
-        driver_name=dc.driver_name,
+        status=dc.status.value if hasattr(dc.status, 'value') else dc.status,
+        customer_quote_id=dc.customer_quote_id,
+        quote_number=dc.customer_quote.quote_number if dc.customer_quote else None,
+        customer_name=dc.customer_quote.customer.name if dc.customer_quote and dc.customer_quote.customer else None,
+        site_name=dc.customer_quote.site.name if dc.customer_quote and dc.customer_quote.site else None,
         notes=dc.notes,
         created_at=dc.created_at,
+        created_by=dc.created_by,
+        updated_by=dc.updated_by,
+        updated_at=dc.updated_at,
         dispatched_at=dc.dispatched_at,
         items=[
             DCLineItemOut(
@@ -169,7 +164,7 @@ def list_delivery_challans(db: Session = Depends(get_db)):
 
 
 @router.post("", response_model=DeliveryChallanDetailOut)
-def create_delivery_challan(payload: DeliveryChallanCreate, db: Session = Depends(get_db)):
+def create_delivery_challan(payload: DeliveryChallanCreate, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     quote = db.query(models.Quote).filter(models.Quote.id == payload.customer_quote_id).first()
     if not quote:
         raise HTTPException(404, "Quote not found")
@@ -221,6 +216,7 @@ def create_delivery_challan(payload: DeliveryChallanCreate, db: Session = Depend
         driver_name=payload.driver_name,
         notes=payload.notes,
         status=models.DCStatus.draft,
+        created_by=user.name,
     )
     db.add(dc)
     db.flush()
@@ -251,7 +247,7 @@ def get_delivery_challan(dc_id: str, db: Session = Depends(get_db)):
 
 
 @router.put("/{dc_id}", response_model=DeliveryChallanDetailOut)
-def update_delivery_challan_draft(dc_id: str, payload: DeliveryChallanDraftUpdate, db: Session = Depends(get_db)):
+def update_delivery_challan_draft(dc_id: str, payload: DeliveryChallanDraftUpdate, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     dc = db.query(models.DeliveryChallan).filter(models.DeliveryChallan.id == dc_id).first()
     if not dc:
         raise HTTPException(404, "Delivery challan not found")
@@ -264,6 +260,8 @@ def update_delivery_challan_draft(dc_id: str, payload: DeliveryChallanDraftUpdat
     dc.vehicle_number = payload.vehicle_number
     dc.driver_name = payload.driver_name
     dc.notes = payload.notes
+    dc.updated_by = user.name
+    dc.updated_at = datetime.utcnow()
     db.query(models.DeliveryChallanLineItem).filter(models.DeliveryChallanLineItem.dc_id == dc.id).delete()
 
     qli_by_id = {li.id: li for li in quote.line_items}
