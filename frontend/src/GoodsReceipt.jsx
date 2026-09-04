@@ -111,18 +111,28 @@ function GRNCard({ po, onConfirmed }) {
     }
   }
 
+  // HTML-escape helper: prevents XSS when inserting DB values into document.write()
+  function esc(str) {
+    return String(str ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;')
+  }
+
   function printGRN() {
     const win = window.open('', '_blank')
-    win.document.write(`<html><head><title>GRN ${grnResult?.grn_number}</title></head><body>
+    win.document.write(`<html><head><title>GRN ${esc(grnResult?.grn_number)}</title></head><body>
       <h2>Goods Receipt Note</h2>
-      <p><b>GRN #:</b> ${grnResult?.grn_number}</p>
-      <p><b>PO #:</b> ${po.po_number}</p>
-      <p><b>Supplier:</b> ${po.supplier_name}</p>
-      <p><b>Store:</b> ${po.store_location || '—'}</p>
+      <p><b>GRN #:</b> ${esc(grnResult?.grn_number)}</p>
+      <p><b>PO #:</b> ${esc(po.po_number)}</p>
+      <p><b>Supplier:</b> ${esc(po.supplier_name)}</p>
+      <p><b>Store:</b> ${esc(po.store_location) || '—'}</p>
       <p><b>Date:</b> ${new Date().toLocaleDateString('en-IN')}</p>
       <table border="1" style="width:100%;border-collapse:collapse">
         <tr><th>Item</th><th>Spec</th><th>Unit</th><th>Qty Received</th></tr>
-        ${(grnResult?.items || []).map(i => `<tr><td>${i.description}</td><td>${i.spec || ''}</td><td>${i.unit}</td><td>${i.quantity_received}</td></tr>`).join('')}
+        ${(grnResult?.items || []).map(i => `<tr><td>${esc(i.description)}</td><td>${esc(i.spec)}</td><td>${esc(i.unit)}</td><td>${esc(i.quantity_received)}</td></tr>`).join('')}
       </table>
     </body></html>`)
     win.document.close()

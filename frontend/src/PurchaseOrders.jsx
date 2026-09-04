@@ -3,6 +3,7 @@ import { api } from './api'
 import PageHeader from './PageHeader'
 import SyncToERPButton from './SyncToERPButton'
 import { useAuth } from './AuthContext'
+import DocumentTemplate from './DocumentTemplate'
 
 const STATUS_LABEL = { draft: 'Draft', sent: 'Sent' }
 const STATUS_STAMP = { draft: 'stamp-neutral', sent: 'stamp-success' }
@@ -323,57 +324,45 @@ export default function PurchaseOrders() {
   // ---- Detail view ----
   if (view === 'detail' && detail) {
     const isDraft = detail.status === 'draft'
+    const processedItems = detail.items.map((item) => {
+      const price = isDraft ? priceDrafts[item.id] : item.unit_price
+      return {
+        ...item,
+        unit_price: price !== '' && price != null ? price : null,
+      }
+    })
+
+    const actionsHeader = (
+      <>
+        <button className="btn btn-secondary" onClick={() => setView('list')}>← Back to list</button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <button className="btn btn-secondary" onClick={() => window.print()}>Print / Export</button>
+          {detail.status !== 'draft' && (
+            <SyncToERPButton recordData={detail} recordType="po" />
+          )}
+          {isDraft && <button className="btn-link btn-link-danger" style={{ marginLeft: 10 }} onClick={handleDelete}>Delete draft</button>}
+        </div>
+      </>
+    )
+
+    const extraMeta = []
+    if (detail.store_location_name) {
+      extraMeta.push({ label: 'Delivery Site', value: `📍 ${detail.store_location_name}` })
+    }
+    if (detail.customer_quote_number) {
+      extraMeta.push({ label: 'For Quote', value: detail.customer_quote_number })
+    }
+
     return (
       <div>
-        <div style={styles.detailHeader} className="no-print">
-          <button className="btn-link" onClick={() => setView('list')}>← Back to list</button>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <button className="btn btn-secondary" onClick={() => window.print()}>Print / Export</button>
-            {detail.status !== 'draft' && (
-              <SyncToERPButton recordData={detail} recordType="po" />
-            )}
-            {isDraft && <button className="btn-link btn-link-danger" style={{ marginLeft: 10 }} onClick={handleDelete}>Delete draft</button>}
-          </div>
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
-          <h2 style={{ margin: 0, fontFamily: 'var(--font-mono)', color: 'var(--color-ink)' }}>{detail.po_number}</h2>
-          <StatusBadge status={detail.status} />
-          {detail.store_location_name && (
-            <span style={{ fontSize: 11, padding: '3px 8px', borderRadius: 12, background: '#ede9fe', color: '#7c3aed', fontWeight: 600 }}>
-              📍 {detail.store_location_name}
-            </span>
-          )}
-          {detail.requires_manager_approval && (
-            <span style={{
-              fontSize: 11, padding: '3px 8px', borderRadius: 12, fontWeight: 700,
-              background: detail.approval_status === 'approved' ? '#dcfce7' : detail.approval_status === 'rejected' ? '#fee2e2' : '#fef3c7',
-              color: detail.approval_status === 'approved' ? '#15803d' : detail.approval_status === 'rejected' ? '#b91c1c' : '#b45309',
-            }}>
-              {detail.approval_status === 'approved' ? '✓ Manager Approved' : detail.approval_status === 'rejected' ? '✕ Manager Rejected' : '⏳ Pending Spend Approval (>₹1L)'}
-            </span>
-          )}
-        </div>
-
         {/* 360° Lifecycle Progress Bar */}
-        <LifecycleProgressBar po={detail} />
-
-        <p style={styles.muted}>
-          To: {detail.supplier_name} {detail.supplier_email ? `· ${detail.supplier_email}` : ''} {detail.supplier_phone ? `· ${detail.supplier_phone}` : ''}
-        </p>
-        <p style={styles.muted}>
-          Created {new Date(detail.created_at).toLocaleString()}
-          {detail.created_by && <> by {detail.created_by}</>}
-          {detail.updated_by && detail.updated_by !== detail.created_by && (
-            <> · Last edited by {detail.updated_by}</>
-          )}
-          {detail.customer_quote_number && <> · For quote {detail.customer_quote_number}</>}
-          {detail.sent_at && <> · Sent {new Date(detail.sent_at).toLocaleString()}</>}
-        </p>
+        <div className="no-print" style={{ marginBottom: 12 }}>
+          <LifecycleProgressBar po={detail} />
+        </div>
 
         {/* Vendor Uploaded Documents Section */}
         {poDocs && poDocs.length > 0 && (
-          <div style={{ background: '#f8faff', border: '1px solid #c7d2fe', borderRadius: 6, padding: '10px 14px', margin: '10px 0' }}>
+          <div className="no-print" style={{ background: '#f8faff', border: '1px solid #c7d2fe', borderRadius: 6, padding: '10px 14px', margin: '10px 0' }}>
             <span style={{ fontSize: 12, fontWeight: 700, color: '#3730a3', textTransform: 'uppercase' }}>Vendor Uploaded Documents ({poDocs.length})</span>
             <div style={{ display: 'flex', gap: 10, marginTop: 6, flexWrap: 'wrap' }}>
               {poDocs.map((d) => (
@@ -406,59 +395,81 @@ export default function PurchaseOrders() {
         )}
         {infoMessage && <div className="banner banner-info no-print">{infoMessage}</div>}
         {isDraft && detail.items_price_missing > 0 && (
-          <div className="banner banner-warning">
+          <div className="banner banner-warning no-print">
             {detail.items_price_missing} item(s) still have no price — fill those in before this can be sent.
           </div>
         )}
 
-        <table className="ledger-table">
-          <thead>
-            <tr>
-              <th>Description</th><th>Spec</th><th>Qty</th><th>Unit</th><th>Unit Price</th><th>GST %</th><th>Line Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            {detail.items.map((item) => {
-              const price = isDraft ? priceDrafts[item.id] : item.unit_price
-              const lineTotal = price !== '' && price != null ? Number(price) * Number(item.quantity) : null
-              return (
-                <tr key={item.id}>
-                  <td>{item.description}</td>
-                  <td>{item.spec || '—'}</td>
-                  <td className="num">{item.quantity}</td>
-                  <td>{item.unit}</td>
-                  <td className="num">
-                    {isDraft ? (
-                      <input
-                        type="number" step="0.01" placeholder="Price Missing"
-                        style={{ width: 110 }}
-                        value={priceDrafts[item.id]}
-                        onChange={(e) => setPriceDrafts((d) => ({ ...d, [item.id]: e.target.value }))}
-                      />
-                    ) : (item.unit_price != null ? money(item.unit_price) : '—')}
-                  </td>
-                  <td className="num">{item.gst_percent != null ? `${item.gst_percent}%` : '—'}</td>
-                  <td className="num">{lineTotal != null ? money(lineTotal) : '—'}</td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
-
-        <div style={styles.totalsBlock}>
-          <div style={styles.totalsRow}><span>Subtotal</span><span>{money(detail.subtotal)}</span></div>
-          <div style={styles.totalsRow}><span>Total GST</span><span>{money(detail.total_gst)}</span></div>
-          <div style={{ ...styles.totalsRow, fontWeight: 700 }}><span>Grand Total</span><span>{money(detail.grand_total)}</span></div>
-        </div>
-
-        <div style={{ marginTop: 16 }}>
-          <label className="eyebrow">Notes (delivery instructions, terms, etc.)</label>
-          {isDraft ? (
-            <textarea style={{ width: '100%' }} rows={3} value={notesDraft} onChange={(e) => setNotesDraft(e.target.value)} />
-          ) : (
-            <p style={{ fontSize: 13, whiteSpace: 'pre-wrap' }}>{detail.notes || '—'}</p>
+        <DocumentTemplate
+          documentType="PURCHASE ORDER"
+          documentNumber={detail.po_number}
+          status={detail.status}
+          statusBadge={<StatusBadge status={detail.status} />}
+          dateLabel="PO Date"
+          dateValue={detail.created_at}
+          dueDateLabel="Sent Date"
+          dueDateValue={detail.sent_at}
+          extraMeta={extraMeta}
+          partyTitle="Vendor / Supplier"
+          partyName={detail.supplier_name}
+          partyEmail={detail.supplier_email}
+          partyPhone={detail.supplier_phone}
+          shipToTitle="Delivery Location / Site"
+          shipToName={detail.store_location_name || 'Central Warehouse'}
+          createdBy={detail.created_by}
+          updatedBy={detail.updated_by}
+          items={processedItems}
+          subtotal={detail.subtotal}
+          totalGst={detail.total_gst}
+          grandTotal={detail.grand_total}
+          showBankDetails={false}
+          notes={isDraft ? (
+            <div>
+              <label className="eyebrow">Notes (delivery instructions, terms, etc.)</label>
+              <textarea style={{ width: '100%' }} rows={3} value={notesDraft} onChange={(e) => setNotesDraft(e.target.value)} />
+            </div>
+          ) : detail.notes}
+          actions={actionsHeader}
+        >
+          {isDraft && (
+            <div style={{ margin: '16px 0' }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-rust)', marginBottom: 8 }} className="no-print">
+                ✏️ Draft Mode: Fill in unit prices below and click &quot;Save Draft&quot;.
+              </div>
+              <table className="ledger-table">
+                <thead>
+                  <tr>
+                    <th>Description</th><th>Spec</th><th>Qty</th><th>Unit</th><th>Unit Price (₹)</th><th>GST %</th><th>Line Total (₹)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {detail.items.map((item) => {
+                    const price = priceDrafts[item.id]
+                    const lineTotal = price !== '' && price != null ? Number(price) * Number(item.quantity) : null
+                    return (
+                      <tr key={item.id}>
+                        <td>{item.description}</td>
+                        <td>{item.spec || '—'}</td>
+                        <td className="num">{item.quantity}</td>
+                        <td>{item.unit}</td>
+                        <td className="num">
+                          <input
+                            type="number" step="0.01" placeholder="Price Missing"
+                            style={{ width: 110 }}
+                            value={priceDrafts[item.id]}
+                            onChange={(e) => setPriceDrafts((d) => ({ ...d, [item.id]: e.target.value }))}
+                          />
+                        </td>
+                        <td className="num">{item.gst_percent != null ? `${item.gst_percent}%` : '—'}</td>
+                        <td className="num">{lineTotal != null ? money(lineTotal) : '—'}</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
           )}
-        </div>
+        </DocumentTemplate>
 
         <div style={styles.actionsRow} className="no-print">
           {detail.status === 'sent' && (

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { api } from './api'
 import PageHeader from './PageHeader'
 import SyncToERPButton from './SyncToERPButton'
+import DocumentTemplate from './DocumentTemplate'
 
 const STATUS_LABEL = { draft: 'Draft', issued: 'Issued' }
 const STATUS_STAMP = { draft: 'stamp-neutral', issued: 'stamp-success' }
@@ -178,83 +179,115 @@ export default function Invoices() {
 
   // ---- Detail view ----
   if (view === 'detail' && detail) {
-    const isDraft = detail.status === 'draft'
+    const actionsHeader = (
+      <>
+        <button className="btn btn-secondary" onClick={() => setView('list')}>← Back to list</button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <button className="btn btn-secondary" onClick={() => window.print()}>Print / Export</button>
+          <button className="btn btn-secondary" onClick={handleRefreshERP} disabled={refreshingERP}>
+            {refreshingERP ? 'Refreshing…' : 'Refresh ERP Status'}
+          </button>
+          {!isDraft && (
+            <SyncToERPButton recordData={detail} recordType="invoice" onSynced={() => openDetail(selectedId)} />
+          )}
+          {isDraft && <button className="btn btn-danger" onClick={handleDelete}>Delete draft</button>}
+        </div>
+      </>
+    )
+
+    const processedItems = detail.items.map((item) => {
+      const qty = isDraft && editQtyDrafts[item.id] !== undefined ? editQtyDrafts[item.id] : item.quantity_invoiced
+      const price = isDraft && editPriceDrafts[item.id] !== undefined ? editPriceDrafts[item.id] : item.unit_price
+      return {
+        ...item,
+        quantity: qty,
+        unit_price: price !== '' && price != null ? price : null,
+      }
+    })
+
+    const extraMeta = [
+      { label: 'Quote Ref', value: detail.quote_number },
+    ]
+    if (detail.erp_payment_status) {
+      extraMeta.push({ label: 'ERP Payment Status', value: detail.erp_payment_status.toUpperCase() })
+    }
+
     return (
       <div>
-        <div style={styles.detailHeader} className="no-print">
-          <button className="btn-link" onClick={() => setView('list')}>← Back to list</button>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <button className="btn btn-secondary" onClick={() => window.print()}>Print / Export</button>
-            <button className="btn btn-secondary" onClick={handleRefreshERP} disabled={refreshingERP}>
-              {refreshingERP ? 'Refreshing…' : 'Refresh ERP Status'}
-            </button>
-            {!isDraft && (
-              <SyncToERPButton recordData={detail} recordType="invoice" onSynced={() => openDetail(selectedId)} />
-            )}
-            {isDraft && <button className="btn-link btn-link-danger" style={{ marginLeft: 10 }} onClick={handleDelete}>Delete draft</button>}
-          </div>
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4, flexWrap: 'wrap' }}>
-          <h2 style={{ margin: 0, fontFamily: 'var(--font-mono)', color: 'var(--color-ink)' }}>{detail.invoice_number}</h2>
-          <StatusBadge status={detail.status} />
-          {detail.erp_payment_status && (
-            <span className={`stamp ${detail.erp_payment_status === 'paid' ? 'stamp-success' : 'stamp-neutral'}`}>
-              ERP: {detail.erp_payment_status.toUpperCase()}
-            </span>
-          )}
-        </div>
-        <p style={styles.muted}>Against quote {detail.quote_number} · {detail.customer_name} · {detail.site_name}</p>
-        <p style={styles.muted}>
-          Created {new Date(detail.created_at).toLocaleString()}
-          {detail.created_by && <> by {detail.created_by}</>}
-          {detail.updated_by && detail.updated_by !== detail.created_by && (
-            <> · Last edited by {detail.updated_by}</>
-          )}
-          {detail.issued_at && <> · Issued {new Date(detail.issued_at).toLocaleString()}</>}
-        </p>
-
         {error && <div className="banner banner-error no-print">{error}</div>}
         {infoMessage && <div className="banner banner-info no-print">{infoMessage}</div>}
         {isDraft && detail.items_price_missing > 0 && (
-          <div className="banner banner-warning">
+          <div className="banner banner-warning no-print">
             {detail.items_price_missing} item(s) still have no price — fill those in before this can be issued.
           </div>
         )}
 
-        <table className="ledger-table">
-          <thead>
-            <tr><th>Description</th><th>Spec</th><th>Qty</th><th>Unit</th><th>Unit Price</th><th>GST %</th><th>Line Total</th></tr>
-          </thead>
-          <tbody>
-            {detail.items.map((item) => {
-              const qty = isDraft && editQtyDrafts[item.id] !== undefined ? editQtyDrafts[item.id] : item.quantity_invoiced
-              const price = isDraft && editPriceDrafts[item.id] !== undefined ? editPriceDrafts[item.id] : item.unit_price
-              const lineTotal = price !== '' && price != null ? Number(price) * Number(qty) : null
-              return (
-                <tr key={item.id}>
-                  <td>{item.description}</td>
-                  <td>{item.spec || '—'}</td>
-                  <td className="num">
-                    {isDraft ? (
-                      <input type="number" step="0.01" style={{ width: 90 }} value={qty}
-                        onChange={(e) => setEditQtyDrafts((d) => ({ ...d, [item.id]: e.target.value }))} />
-                    ) : item.quantity_invoiced}
-                  </td>
-                  <td>{item.unit}</td>
-                  <td className="num">
-                    {isDraft ? (
-                      <input type="number" step="0.01" placeholder="Price Missing" style={{ width: 110 }} value={price ?? ''}
-                        onChange={(e) => setEditPriceDrafts((d) => ({ ...d, [item.id]: e.target.value }))} />
-                    ) : (item.unit_price != null ? money(item.unit_price) : '—')}
-                  </td>
-                  <td className="num">{item.gst_percent != null ? `${item.gst_percent}%` : '—'}</td>
-                  <td className="num">{lineTotal != null ? money(lineTotal) : '—'}</td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
+        <DocumentTemplate
+          documentType="TAX INVOICE"
+          documentNumber={detail.invoice_number}
+          status={detail.status}
+          statusBadge={<StatusBadge status={detail.status} />}
+          dateLabel="Invoice Date"
+          dateValue={detail.created_at}
+          dueDateLabel="Issued Date"
+          dueDateValue={detail.issued_at}
+          extraMeta={extraMeta}
+          partyTitle="Billed To (Customer)"
+          partyName={detail.customer_name}
+          shipToTitle="Delivery Site / Site Name"
+          shipToName={detail.site_name}
+          createdBy={detail.created_by}
+          updatedBy={detail.updated_by}
+          items={processedItems}
+          subtotal={detail.subtotal}
+          totalGst={detail.total_gst}
+          grandTotal={detail.grand_total}
+          showBankDetails={true}
+          notes={isDraft ? (
+            <div style={{ marginTop: 12 }}>
+              <label className="eyebrow">Notes / Remarks</label>
+              <textarea style={{ width: '100%' }} rows={3} value={editNotes} onChange={(e) => setEditNotes(e.target.value)} />
+            </div>
+          ) : detail.notes}
+          actions={actionsHeader}
+        >
+          {isDraft && (
+            <div style={{ margin: '16px 0' }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-rust)', marginBottom: 8 }} className="no-print">
+                ✏️ Draft Mode: Edit quantities & prices below and click &quot;Save Draft&quot;.
+              </div>
+              <table className="ledger-table">
+                <thead>
+                  <tr><th>Description</th><th>Spec</th><th>Qty</th><th>Unit</th><th>Unit Price (₹)</th><th>GST %</th><th>Line Total (₹)</th></tr>
+                </thead>
+                <tbody>
+                  {detail.items.map((item) => {
+                    const qty = editQtyDrafts[item.id] !== undefined ? editQtyDrafts[item.id] : item.quantity_invoiced
+                    const price = editPriceDrafts[item.id] !== undefined ? editPriceDrafts[item.id] : item.unit_price
+                    const lineTotal = price !== '' && price != null ? Number(price) * Number(qty) : null
+                    return (
+                      <tr key={item.id}>
+                        <td>{item.description}</td>
+                        <td>{item.spec || '—'}</td>
+                        <td className="num">
+                          <input type="number" step="0.01" style={{ width: 90 }} value={qty}
+                            onChange={(e) => setEditQtyDrafts((d) => ({ ...d, [item.id]: e.target.value }))} />
+                        </td>
+                        <td>{item.unit}</td>
+                        <td className="num">
+                          <input type="number" step="0.01" placeholder="Price Missing" style={{ width: 110 }} value={price ?? ''}
+                            onChange={(e) => setEditPriceDrafts((d) => ({ ...d, [item.id]: e.target.value }))} />
+                        </td>
+                        <td className="num">{item.gst_percent != null ? `${item.gst_percent}%` : '—'}</td>
+                        <td className="num">{lineTotal != null ? money(lineTotal) : '—'}</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </DocumentTemplate>
 
         <div style={styles.totalsBlock}>
           <div style={styles.totalsRow}><span>Subtotal</span><span>{money(detail.subtotal)}</span></div>

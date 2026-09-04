@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -13,6 +15,10 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 VALID_ROLES = ("purchase", "accounts", "manager", "admin", "store")
 
+# Shared limiter instance — defined here; the one in main.py is the same object
+# attached to app.state so slowapi middleware can reach it.
+limiter = Limiter(key_func=get_remote_address)
+
 
 def _user_out(u: models.User) -> UserOut:
     return UserOut(id=u.id, name=u.name, email=u.email, role=u.role.value, created_at=u.created_at)
@@ -26,7 +32,8 @@ def bootstrap_status(db: Session = Depends(get_db)):
 
 
 @router.post("/setup", response_model=UserOut)
-def setup_first_account(payload: SetupRequest, response: Response, db: Session = Depends(get_db)):
+@limiter.limit("10/minute")
+def setup_first_account(request: Request, payload: SetupRequest, response: Response, db: Session = Depends(get_db)):
     """Creates the first-ever account, always as Admin. Refuses once any
     account exists — from then on, only an existing Admin/Manager can create
     more accounts, via POST /api/auth/users."""
@@ -47,7 +54,9 @@ def setup_first_account(payload: SetupRequest, response: Response, db: Session =
 
 
 @router.post("/login", response_model=UserOut)
-def login(payload: LoginRequest, response: Response, db: Session = Depends(get_db)):
+@limiter.limit("10/minute")
+def login(request: Request, payload: LoginRequest, response: Response, db: Session = Depends(get_db)):
+    """Max 10 login attempts per IP per minute to prevent brute-force attacks."""
     user = db.query(models.User).filter(models.User.email == payload.email).first()
     if not user or not verify_password(payload.password, user.password_hash):
         raise HTTPException(401, "Incorrect email or password.")

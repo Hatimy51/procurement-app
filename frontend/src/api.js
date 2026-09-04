@@ -3,9 +3,15 @@
 const BASE = '/api'
 
 async function request(path, options = {}) {
+  const isFormData = options.body instanceof FormData
+  const headers = isFormData
+    ? { ...(options.headers || {}) }
+    : { 'Content-Type': 'application/json', ...(options.headers || {}) }
+
   const res = await fetch(`${BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
     ...options,
+    headers,
   })
   if (!res.ok) {
     const text = await res.text()
@@ -48,7 +54,12 @@ export const api = {
 
   // Chat
   listChatMessages: () => request('/chat/messages'),
-  sendChatMessage: (message) => request('/chat/messages', { method: 'POST', body: JSON.stringify({ message }) }),
+  sendChatMessage: (message, file = null) => {
+    const formData = new FormData()
+    formData.append('message', message || '')
+    if (file) formData.append('file', file)
+    return request('/chat/messages', { method: 'POST', body: formData })
+  },
 
   listProducts: (search) =>
     request(`/products${search ? `?search=${encodeURIComponent(search)}` : ''}`),

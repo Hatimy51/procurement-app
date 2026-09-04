@@ -8,11 +8,14 @@ Roles and what each can do:
   - admin:    user/account management ONLY — can create/delete users, nothing else.
   - store:    GRN entry queue filtered to their assigned store location only.
 
-Sessions are simple and don't expire — this runs on one trusted local
-machine, not the open internet. A session lasts until logout.
+Sessions are server-side browser sessions. They are intended for local/internal
+deployment; session records are invalidated by logout and can be expired by
+the application when their configured lifetime is reached.
 """
+import os
 import secrets
 from fastapi import Depends, HTTPException, Request, Response
+from datetime import datetime
 from sqlalchemy.orm import Session as DBSession
 import bcrypt
 
@@ -20,6 +23,7 @@ from app.database import get_db
 from app import models
 
 SESSION_COOKIE_NAME = "session_token"
+SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30
 
 # Roles with full portal read access (can view all screens)
 FULL_READ_ROLES = {"purchase", "accounts", "manager"}
@@ -50,12 +54,16 @@ def set_session_cookie(response: Response, token: str):
     response.set_cookie(
         key=SESSION_COOKIE_NAME, value=token,
         httponly=True, samesite="lax",
-        max_age=60 * 60 * 24 * 30,  # 30 days
+        secure=True,  # never send over plain HTTP
+        max_age=SESSION_MAX_AGE_SECONDS,  # 30 days
     )
 
 
 def clear_session_cookie(response: Response):
     response.delete_cookie(SESSION_COOKIE_NAME)
+
+
+SESSION_IDLE_TIMEOUT_SECONDS = int(os.getenv("SESSION_IDLE_TIMEOUT_SECONDS", str(60 * 60 * 8)))  # 8 hours
 
 
 def get_current_user(request: Request, db: DBSession = Depends(get_db)) -> models.User:
@@ -65,6 +73,26 @@ def get_current_user(request: Request, db: DBSession = Depends(get_db)) -> model
     session = db.query(models.Session).filter(models.Session.token == token).first()
     if not session:
         raise HTTPException(401, "Session expired or invalid — please log in again.")
+
+    now = datetime.utcnow()
+
+    # Hard expiry: absolute 30-day ceiling from creation
+    if (now - session.created_at).total_seconds() > SESSION_MAX_AGE_SECONDS:
+        db.delete(session)
+        db.commit()
+        raise HTTPException(401, "Session expired — please log in again.")
+
+    # Idle expiry: no activity for SESSION_IDLE_TIMEOUT_SECONDS
+    last_seen = session.last_seen_at or session.created_at
+    if (now - last_seen).total_seconds() > SESSION_IDLE_TIMEOUT_SECONDS:
+        db.delete(session)
+        db.commit()
+        raise HTTPException(401, "Session timed out due to inactivity — please log in again.")
+
+    # Refresh last_seen_at on every authenticated request
+    session.last_seen_at = now
+    db.commit()
+
     return session.user
 
 
@@ -89,7 +117,7 @@ def require_router_access(owner_role: str):
       - Anything else (creating/editing/deleting): allowed for the owning role AND manager.
       - Paths ending in "/approve": manager only (for Customer Quote approval).
       - admin role: blocked from ALL procurement routers — user management screen only.
-      - store role: blocked from ALL routers except GRN router (handled separately).
+      - store role: allowed only through the GRN router; GRN endpoints enforce store-location scope.
     """
     def dependency(request: Request, user: models.User = Depends(get_current_user)) -> models.User:
         role = user.role.value
@@ -97,8 +125,7 @@ def require_router_access(owner_role: str):
         # admin and store have no access to any procurement router
         if role == "admin":
             raise HTTPException(403, "Admin accounts can only access user management.")
-        if role == "store":
-            # store users are only allowed to access GRN endpoints (enforced in grns router)
+        if role == "store" and owner_role != "grn":
             raise HTTPException(403, "Store accounts can only access the GRN receiving queue.")
 
         # approve endpoints: manager only

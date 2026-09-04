@@ -112,10 +112,11 @@ def get_dashboard_kpis(db: Session = Depends(get_db)):
                 diff_days = (grn.received_at - po.created_at).total_seconds() / 86400.0
                 if diff_days >= 0:
                     lead_times.append(diff_days)
-    avg_lead_time = round(sum(lead_times) / len(lead_times), 1) if lead_times else 2.5
+    avg_lead_time = round(sum(lead_times) / len(lead_times), 1) if lead_times else None
 
-    # Calculate estimated savings (e.g. baseline vs awarded or benchmarked volume discount ~4.8% of PO value)
-    total_savings_inr = round(float(open_po_value or 0.0) * 0.048, 2)
+    # Savings are only reported when backed by persisted benchmark/award data.
+    # The current schema does not persist such a benchmark, so do not invent a percentage.
+    total_savings_inr = None
 
     return {
         "kpis": {

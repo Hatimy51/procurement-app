@@ -38,6 +38,21 @@ def _server_config(erp_type: str) -> dict:
     return {"tally_url": os.getenv("TALLY_URL", "http://localhost:9000")}
 
 
+def _load_record(db: Session, record_type: str, record_id: Optional[str]):
+    if not record_id:
+        return None
+    model = {
+        "po": models.PurchaseOrder,
+        "invoice": models.Invoice,
+        "vendor_invoice": models.VendorInvoice,
+    }[record_type]
+    return db.query(model).filter(model.id == record_id).first()
+
+
+def _record_display_id(record, record_type: str):
+    return getattr(record, "po_number", None) or getattr(record, "invoice_number", None) or record.id
+
+
 @router.post("/sync")
 def sync_to_accounting(
     req: SyncRequest,
@@ -51,14 +66,29 @@ def sync_to_accounting(
     if req.record_type in ("invoice", "vendor_invoice") and user.role != models.UserRole.accounts:
         raise HTTPException(status_code=403, detail="Only Accounts users can sync invoices.")
 
+    record = _load_record(db, req.record_type, req.record_id)
+    if req.record_id and not record:
+        raise HTTPException(status_code=404, detail=f"{req.record_type} record not found.")
+    if record and record.erp_external_id and record.erp_sync_status == "synced":
+        return {
+            "status": "already_synced",
+            "result": {
+                "success": True,
+                "external_id": record.erp_external_id,
+                "message": f"{req.record_type} {_record_display_id(record, req.record_type)} is already synced to ERP."
+            }
+        }
+
     config = _server_config(req.erp_type)
 
     try:
         adapter = get_erp_adapter(req.erp_type, config)
+        sync_data = dict(req.data or {})
+        sync_data["_record_type"] = req.record_type
         result = (
-            adapter.push_purchase_order(req.data)
+            adapter.push_purchase_order(sync_data)
             if req.record_type == "po"
-            else adapter.push_invoice(req.data)
+            else adapter.push_invoice(sync_data)
         )
         if not result.get("success"):
             raise HTTPException(
@@ -67,24 +97,35 @@ def sync_to_accounting(
             )
 
         external_id = result.get("external_id")
-        if req.record_id and external_id:
-            record = None
-            if req.record_type == "po":
-                record = db.query(models.PurchaseOrder).filter(models.PurchaseOrder.id == req.record_id).first()
-            elif req.record_type == "invoice":
-                record = db.query(models.Invoice).filter(models.Invoice.id == req.record_id).first()
-            elif req.record_type == "vendor_invoice":
-                record = db.query(models.VendorInvoice).filter(models.VendorInvoice.id == req.record_id).first()
-
-            if record:
+        if record:
+            if external_id:
                 record.erp_external_id = str(external_id)
                 record.erp_sync_status = "synced"
                 record.erp_synced_at = datetime.utcnow()
-                db.commit()
+            else:
+                record.erp_sync_status = "synced_no_external_id"
+                record.erp_synced_at = datetime.utcnow()
+            db.commit()
 
         return {"status": "synced", "result": result}
+    except HTTPException:
+        if record:
+            record.erp_sync_status = "failed"
+            record.erp_synced_at = datetime.utcnow()
+            db.commit()
+        raise
     except ValueError as exc:
+        if record:
+            record.erp_sync_status = "failed"
+            record.erp_synced_at = datetime.utcnow()
+            db.commit()
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        if record:
+            record.erp_sync_status = "failed"
+            record.erp_synced_at = datetime.utcnow()
+            db.commit()
+        raise HTTPException(status_code=502, detail=f"ERP sync failed: {exc}") from exc
 
 
 @router.post("/refresh-status")

@@ -60,13 +60,13 @@ export default function Dashboard() {
 
         <div className="card" style={styles.card}>
           <p className="eyebrow">Procurement Savings</p>
-          <p style={{ ...styles.value, color: 'var(--color-leaf)' }}>{money(metrics.total_savings_inr)}</p>
+          <p style={{ ...styles.value, color: 'var(--color-leaf)' }}>{metrics.total_savings_inr == null ? '—' : money(metrics.total_savings_inr)}</p>
           <p style={styles.help}>Savings from quote split & price negotiations.</p>
         </div>
 
         <div className="card" style={styles.card}>
           <p className="eyebrow">Avg Lead Time</p>
-          <p style={styles.value}>{metrics.avg_lead_time_days || 2.5} d</p>
+          <p style={styles.value}>{metrics.avg_lead_time_days == null ? '—' : `${metrics.avg_lead_time_days} d`}</p>
           <p style={styles.help}>Average duration PO creation to warehouse GRN.</p>
         </div>
 

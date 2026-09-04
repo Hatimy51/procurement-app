@@ -54,9 +54,8 @@ class TallyAdapter(BaseERPAdapter):
 
     def push_invoice(self, invoice_data: Dict[str, Any]) -> Dict[str, Any]:
         return {
-            "success": True,
-            "external_id": invoice_data.get("invoice_number"),
-            "note": "Invoice sync placeholder — extend Tally voucher mapping as needed.",
+            "success": False,
+            "error": "Tally invoice sync is not implemented yet; the system will not report a false success.",
         }
 
     def get_payment_status(self, external_id: str, record_type: str = "vendor_invoice") -> Dict[str, Any]:

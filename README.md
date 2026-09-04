@@ -123,3 +123,15 @@ docker-compose.yml       — Postgres + backend, one command to start both
 
 The remaining roadmap is deeper inbox automation, automated supplier-quote
 ingestion, store QC, and datasheet/specification matching.
+
+## Current security/setup notes
+
+- Keep the real `.env` file local and never commit it to Git.
+- Add `ENCRYPTION_KEY` to `.env` before using Gmail OAuth. Generate one with:
+  `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`
+- After setting `ENCRYPTION_KEY`, restart Docker so the backend receives the new environment value.
+- Gmail OAuth tokens are now encrypted with Fernet and no insecure XOR fallback is used.
+- Vendor portal document downloads now require a valid vendor token or an authenticated internal session.
+- Store users can access only GRNs for their assigned store location.
+- Tally invoice sync deliberately reports "not implemented" instead of falsely reporting a successful sync.
+- Zoho sync requires configured vendor/customer and item mappings before it will create accounting records.

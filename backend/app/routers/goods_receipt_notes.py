@@ -51,6 +51,11 @@ def _line_status(db: Session, pli: models.PurchaseOrderLineItem) -> POLineGRNSta
     )
 
 
+def _ensure_grn_access(po: models.PurchaseOrder, user: models.User):
+    if user.role == models.UserRole.store and po.store_location_id != user.store_location_id:
+        raise HTTPException(403, "This PO is not assigned to your store location.")
+
+
 def _detail_out(grn: models.GoodsReceiptNote) -> GRNDetailOut:
     po = grn.purchase_order
     supplier = po.supplier if po else None
@@ -169,7 +174,7 @@ def get_po_vendor_challans(
             "file_size": float(d.file_size) if d.file_size else None,
             "notes": d.notes,
             "uploaded_at": d.uploaded_at,
-            "download_url": f"/api/vendor-portal/download/{d.id}",
+            "download_url": f"/api/vendor-portal/internal/download/{d.id}",
         }
         for d in docs
     ]
@@ -196,8 +201,11 @@ def _validate_items_against_remaining(db: Session, po: models.PurchaseOrder, ite
 
 
 @router.get("", response_model=list[GRNListItemOut])
-def list_grns(db: Session = Depends(get_db)):
-    grns = db.query(models.GoodsReceiptNote).order_by(models.GoodsReceiptNote.created_at.desc()).all()
+def list_grns(db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+    query = db.query(models.GoodsReceiptNote).order_by(models.GoodsReceiptNote.created_at.desc())
+    if user.role == models.UserRole.store:
+        query = query.join(models.PurchaseOrder).filter(models.PurchaseOrder.store_location_id == user.store_location_id)
+    grns = query.all()
     out = []
     for grn in grns:
         po = grn.purchase_order
@@ -215,10 +223,11 @@ def list_grns(db: Session = Depends(get_db)):
 
 
 @router.post("", response_model=GRNDetailOut)
-def create_grn(payload: GRNCreate, db: Session = Depends(get_db)):
+def create_grn(payload: GRNCreate, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     po = db.query(models.PurchaseOrder).filter(models.PurchaseOrder.id == payload.po_id).first()
     if not po:
         raise HTTPException(404, "Purchase Order not found")
+    _ensure_grn_access(po, user)
     if po.status not in ELIGIBLE_PO_STATUSES:
         raise HTTPException(400, "Only sent purchase orders can have a GRN raised against them.")
 
@@ -312,15 +321,16 @@ def create_grn(payload: GRNCreate, db: Session = Depends(get_db)):
 
 
 @router.get("/{grn_id}", response_model=GRNDetailOut)
-def get_grn(grn_id: str, db: Session = Depends(get_db)):
+def get_grn(grn_id: str, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     grn = db.query(models.GoodsReceiptNote).filter(models.GoodsReceiptNote.id == grn_id).first()
     if not grn:
         raise HTTPException(404, "Goods Receipt Note not found")
+    _ensure_grn_access(grn.purchase_order, user)
     return _detail_out(grn)
 
 
 @router.put("/{grn_id}", response_model=GRNDetailOut)
-def update_grn_draft(grn_id: str, payload: GRNDraftUpdate, db: Session = Depends(get_db)):
+def update_grn_draft(grn_id: str, payload: GRNDraftUpdate, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     grn = db.query(models.GoodsReceiptNote).filter(models.GoodsReceiptNote.id == grn_id).first()
     if not grn:
         raise HTTPException(404, "Goods Receipt Note not found")
@@ -328,6 +338,7 @@ def update_grn_draft(grn_id: str, payload: GRNDraftUpdate, db: Session = Depends
         raise HTTPException(400, "Only draft GRNs can be edited.")
 
     po = grn.purchase_order
+    _ensure_grn_access(po, user)
     _validate_items_against_remaining(db, po, payload.items)
 
     grn.vehicle_number = payload.vehicle_number
@@ -354,12 +365,13 @@ def update_grn_draft(grn_id: str, payload: GRNDraftUpdate, db: Session = Depends
 
 
 @router.post("/{grn_id}/mark-received", response_model=GRNDetailOut)
-def mark_received(grn_id: str, db: Session = Depends(get_db)):
+def mark_received(grn_id: str, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     grn = db.query(models.GoodsReceiptNote).filter(models.GoodsReceiptNote.id == grn_id).first()
     if not grn:
         raise HTTPException(404, "Goods Receipt Note not found")
     if grn.status != models.GRNStatus.draft:
         raise HTTPException(400, "Only draft GRNs can be marked as received.")
+    _ensure_grn_access(grn.purchase_order, user)
 
     for li in grn.line_items:
         remaining = li.purchase_order_line_item.quantity - _received_so_far(db, li.po_line_item_id)
@@ -378,12 +390,13 @@ def mark_received(grn_id: str, db: Session = Depends(get_db)):
 
 
 @router.delete("/{grn_id}")
-def delete_grn(grn_id: str, db: Session = Depends(get_db)):
+def delete_grn(grn_id: str, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     grn = db.query(models.GoodsReceiptNote).filter(models.GoodsReceiptNote.id == grn_id).first()
     if not grn:
         raise HTTPException(404, "Goods Receipt Note not found")
     if grn.status != models.GRNStatus.draft:
         raise HTTPException(400, "Only draft GRNs can be deleted.")
+    _ensure_grn_access(grn.purchase_order, user)
 
     db.delete(grn)
     db.commit()

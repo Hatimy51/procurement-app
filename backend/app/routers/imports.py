@@ -1,4 +1,5 @@
 import json
+import os
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
@@ -15,6 +16,9 @@ router = APIRouter(prefix="/api/imports", tags=["imports"])
 # needs a name; category/spec/unit/prices/GST are all optional).
 TARGET_FIELDS = ["name", "category", "spec", "unit", "cost_price", "selling_price", "gst_percent"]
 
+# 20 MB cap — generous enough for any real-world price-list spreadsheet
+IMPORT_MAX_BYTES = int(os.getenv("IMPORT_MAX_BYTES", str(20 * 1024 * 1024)))
+
 
 @router.post("/preview", response_model=ImportPreviewOut)
 async def preview_import(file: UploadFile = File(...)):
@@ -23,7 +27,9 @@ async def preview_import(file: UploadFile = File(...)):
     and a few sample rows, so the Purchaser can map columns before anything
     is actually written to the database.
     """
-    file_bytes = await file.read()
+    file_bytes = await file.read(IMPORT_MAX_BYTES + 1)
+    if len(file_bytes) > IMPORT_MAX_BYTES:
+        raise HTTPException(413, f"File is too large. Maximum allowed size is {IMPORT_MAX_BYTES // (1024 * 1024)} MB.")
     try:
         headers, rows = parse_tabular_file(file.filename, file_bytes)
     except ValueError as e:
@@ -60,7 +66,9 @@ async def commit_import(
     if not field_map.get("name"):
         raise HTTPException(400, "You must map a column to 'name' at minimum.")
 
-    file_bytes = await file.read()
+    file_bytes = await file.read(IMPORT_MAX_BYTES + 1)
+    if len(file_bytes) > IMPORT_MAX_BYTES:
+        raise HTTPException(413, f"File is too large. Maximum allowed size is {IMPORT_MAX_BYTES // (1024 * 1024)} MB.")
     try:
         headers, rows = parse_tabular_file(file.filename, file_bytes)
     except ValueError as e:

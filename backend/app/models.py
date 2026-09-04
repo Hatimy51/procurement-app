@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
-    Column, String, Text, ForeignKey, DateTime, Numeric, Enum, Boolean, UniqueConstraint
+    Column, String, Text, ForeignKey, DateTime, Numeric, Enum, Boolean, UniqueConstraint, Integer
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
@@ -221,11 +221,8 @@ class Quote(Base):
     product's price/GST — the same "protect the historical record" principle
     already used for price history elsewhere in the app.
 
-    approved_by_name is a free-text field, not a real user account — there's
-    no login/user system built anywhere in the app yet (the `users` table
-    exists in the schema but nothing creates or manages User rows), so this
-    stays a simple name entered at approval time rather than forcing a full
-    auth build to unblock this feature.
+    approved_by_name is retained for historical display compatibility; the
+    application now has a real User/session authentication system as well.
     """
     __tablename__ = "quotes"
     id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
@@ -312,15 +309,29 @@ class User(Base):
 
 
 class Session(Base):
-    """A logged-in browser session. Deliberately simple (no expiry timer) —
-    this app runs on one trusted local machine; a session lasts until the
-    person logs out."""
+    """A logged-in browser session. Expires automatically if idle for too long."""
     __tablename__ = "sessions"
     token = Column(String, primary_key=True)
     user_id = Column(UUID(as_uuid=False), ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+    last_seen_at = Column(DateTime, default=datetime.utcnow)
 
     user = relationship("User")
+
+
+class VendorSession(Base):
+    """
+    A vendor portal login session persisted in the database.
+    Replaces the previous in-memory dict which lost all sessions on
+    every server restart. Token is a URL-safe random string (32 bytes).
+    """
+    __tablename__ = "vendor_sessions"
+    token = Column(String, primary_key=True)
+    supplier_id = Column(UUID(as_uuid=False), ForeignKey("suppliers.id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=False)
+
+    supplier = relationship("Supplier")
 
 
 class ImportJob(Base):
@@ -602,11 +613,9 @@ class GmailConnection(Base):
     """
     A connected Gmail inbox. Single-row-per-connection by design — this
     app connects to ONE inbox at a time (the client's own), not multiple
-    accounts. access_token/refresh_token are stored as given by Google;
-    there's no additional encryption layer here, consistent with the rest
-    of this app's data (it already stores business-sensitive pricing data
-    unencrypted at rest — this doesn't introduce a new risk category, but
-    is worth knowing).
+    accounts. OAuth access/refresh tokens are encrypted before storage using
+    the server-side ENCRYPTION_KEY.
+
     """
     __tablename__ = "gmail_connections"
     id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
@@ -676,6 +685,10 @@ class ChatMessage(Base):
     id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
     sender_user_id = Column(UUID(as_uuid=False), ForeignKey("users.id"), nullable=False)
     message = Column(Text, nullable=False)
+    file_path = Column(String, nullable=True)
+    file_name = Column(String, nullable=True)
+    file_size = Column(Integer, nullable=True)
+    file_type = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     sender = relationship("User")

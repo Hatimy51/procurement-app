@@ -15,13 +15,21 @@ class ZohoBooksAdapter(BaseERPAdapter):
         }
 
     def push_purchase_order(self, po_data: Dict[str, Any]) -> Dict[str, Any]:
+        if not self.api_key or not self.org_id:
+            return {"success": False, "error": "Zoho API key and organization ID are not configured."}
+        if not po_data.get("zoho_vendor_id"):
+            return {"success": False, "error": "Zoho vendor mapping is missing. Add zoho_vendor_id before syncing this PO."}
         url = f"{self.base_url}/purchaseorders?organization_id={self.org_id}"
+        missing_items = [item.get("description", "item") for item in po_data.get("items", []) if not item.get("zoho_item_id")]
+        if missing_items:
+            return {"success": False, "error": "Zoho item mapping is missing for: " + ", ".join(missing_items[:5])}
         payload = {
-            "vendor_name": po_data.get("supplier_name"),
+            "vendor_id": po_data.get("zoho_vendor_id"),
             "reference_number": po_data.get("po_number"),
             "date": po_data.get("created_date") or po_data.get("date"),
             "line_items": [
                 {
+                    "item_id": item.get("zoho_item_id"),
                     "name": item.get("description"),
                     "rate": item.get("unit_price"),
                     "quantity": item.get("quantity"),
@@ -44,27 +52,54 @@ class ZohoBooksAdapter(BaseERPAdapter):
             return {"success": False, "error": f"Zoho request failed: {exc}"}
 
     def push_invoice(self, invoice_data: Dict[str, Any]) -> Dict[str, Any]:
-        url = f"{self.base_url}/bills?organization_id={self.org_id}"
-        payload = {
-            "vendor_name": invoice_data.get("supplier_name"),
-            "bill_number": invoice_data.get("invoice_number"),
-            "line_items": [
-                {
-                    "name": item.get("description"),
-                    "rate": item.get("unit_price"),
-                    "quantity": item.get("quantity", item.get("quantity_invoiced")),
-                }
-                for item in invoice_data.get("items", [])
-            ],
-        }
-
+        if not self.api_key or not self.org_id:
+            return {"success": False, "error": "Zoho API key and organization ID are not configured."}
+        record_type = invoice_data.get("_record_type", "vendor_invoice")
+        if record_type == "invoice":
+            if not invoice_data.get("zoho_customer_id"):
+                return {"success": False, "error": "Zoho customer mapping is missing. Add zoho_customer_id before syncing this invoice."}
+            endpoint = "invoices"
+            id_key = "invoice_id"
+            payload = {
+                "customer_id": invoice_data.get("zoho_customer_id"),
+                "invoice_number": invoice_data.get("invoice_number"),
+                "line_items": [
+                    {
+                        "item_id": item.get("zoho_item_id"),
+                        "name": item.get("description"),
+                        "rate": item.get("unit_price"),
+                        "quantity": item.get("quantity", item.get("quantity_invoiced")),
+                    }
+                    for item in invoice_data.get("items", [])
+                ],
+            }
+        else:
+            if not invoice_data.get("zoho_vendor_id"):
+                return {"success": False, "error": "Zoho vendor mapping is missing. Add zoho_vendor_id before syncing this vendor invoice."}
+            endpoint = "bills"
+            id_key = "bill_id"
+            payload = {
+                "vendor_id": invoice_data.get("zoho_vendor_id"),
+                "bill_number": invoice_data.get("invoice_number"),
+                "line_items": [
+                    {
+                        "item_id": item.get("zoho_item_id"),
+                        "name": item.get("description"),
+                        "rate": item.get("unit_price"),
+                        "quantity": item.get("quantity", item.get("quantity_invoiced")),
+                    }
+                    for item in invoice_data.get("items", [])
+                ],
+            }
+        missing_items = [item.get("description", "item") for item in payload["line_items"] if not item.get("item_id")]
+        if missing_items:
+            return {"success": False, "error": "Zoho item mapping is missing for: " + ", ".join(missing_items[:5])}
+        url = f"{self.base_url}/{endpoint}?organization_id={self.org_id}"
         try:
             response = requests.post(url, json=payload, headers=self.headers, timeout=30)
             if response.status_code in (200, 201):
-                return {
-                    "success": True,
-                    "external_id": response.json().get("bill", {}).get("bill_id"),
-                }
+                record = response.json().get("invoice" if record_type == "invoice" else "bill", {})
+                return {"success": True, "external_id": record.get(id_key)}
             return {"success": False, "error": response.text}
         except requests.RequestException as exc:
             return {"success": False, "error": f"Zoho request failed: {exc}"}

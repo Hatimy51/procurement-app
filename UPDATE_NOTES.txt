@@ -1,0 +1,30 @@
+PROCUREMENT APP – UPDATE NOTES
+
+This ZIP contains your latest source plus the security/workflow fixes discussed with you.
+
+IMPORTANT
+1. Do NOT copy the included .env (it is intentionally NOT included in this ZIP). Keep your existing local .env.
+2. Add this new line to your existing .env:
+   ENCRYPTION_KEY=
+3. To generate the key, open Command Prompt in the project folder and run:
+   docker compose run --rm backend python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+   Copy the printed value after ENCRYPTION_KEY=.
+4. Restart the app with:
+   docker compose down
+   docker compose up -d --build
+
+MAIN FIXES INCLUDED
+- Store users can now use the GRN/Receiving Queue API and are restricted to their assigned store.
+- Vendor-uploaded document downloads are authorization-protected.
+- Vendor portal sessions expire after a configurable period (default 8 hours).
+- Vendor upload filenames are sanitized and uploads are capped (default 10 MB).
+- Gmail OAuth tokens require a real Fernet encryption key; the old insecure fallback is removed.
+- ERP sync will not create a duplicate record when an existing record is already marked synced.
+- Failed ERP syncs are recorded as failed instead of silently looking successful.
+- Tally invoice sync no longer reports a false success.
+- Zoho sync now fails clearly until the required Zoho vendor/customer/item mappings exist.
+- Dashboard no longer invents savings or a 2.5-day lead-time value when no source data exists.
+- Added 3 backend regression tests.
+
+NOTE
+The sandbox could not run a clean Vite production build because the uploaded node_modules was incomplete for this Linux environment. The source files are included; run `npm install` in frontend before local frontend development.

@@ -144,7 +144,7 @@ function POCard({ order, vendorToken, onRefresh }) {
                     <FileText size={13} color="#6366f1" />
                     <span style={{ fontSize: 13 }}>{d.file_name}</span>
                   </div>
-                  <a href={`/api/vendor-portal/download/${d.id}`} download style={{ fontSize: 12, color: '#3b5bdb', textDecoration: 'none', fontWeight: 600 }}>Download</a>
+                  <a href={`/api/vendor-portal/download/${d.id}?vendor_token=${encodeURIComponent(vendorToken)}`} download style={{ fontSize: 12, color: '#3b5bdb', textDecoration: 'none', fontWeight: 600 }}>Download</a>
                 </div>
               ))}
             </div>
@@ -193,6 +193,7 @@ function POCard({ order, vendorToken, onRefresh }) {
 
 export default function VendorPortal() {
   const [identifier, setIdentifier] = useState('')
+  const [gstNumber, setGstNumber] = useState('')
   const [loading, setLoading] = useState(false)
   const [err, setErr] = useState('')
   const [session, setSession] = useState(null)   // { vendor_token, supplier_name }
@@ -207,7 +208,7 @@ export default function VendorPortal() {
       const res = await fetch(`${BASE}/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ identifier: identifier.trim() }),
+        body: JSON.stringify({ identifier: identifier.trim(), gst_number: gstNumber.trim() || null }),
       })
       if (!res.ok) {
         const text = await res.text()
@@ -243,17 +244,25 @@ export default function VendorPortal() {
             </div>
           </div>
           <p style={s.sub}>
-            Enter your registered <strong>email address</strong> or <strong>GST number</strong> to view your purchase orders, track delivery status, and upload delivery challans & invoices.
+            Enter the registered supplier email. If your supplier record has a GST number, enter it as an additional verification step.
           </p>
           {err && <div style={s.error}>{err}</div>}
           <form onSubmit={handleLogin}>
-            <label style={s.label}>Email or GST Number</label>
+            <label style={s.label}>Registered Email</label>
             <input
               style={s.input}
               value={identifier}
               onChange={e => setIdentifier(e.target.value)}
-              placeholder="yourname@company.com or 27ABCDE1234F1Z5"
+              placeholder="vendor@example.com"
               autoFocus
+              type="email"
+            />
+            <label style={s.label}>GST Number (if registered)</label>
+            <input
+              style={s.input}
+              value={gstNumber}
+              onChange={e => setGstNumber(e.target.value)}
+              placeholder="27ABCDE1234F1Z5"
             />
             <button style={s.btn} type="submit" disabled={loading}>
               {loading ? 'Checking…' : 'Access My Orders →'}
