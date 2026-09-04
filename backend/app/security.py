@@ -50,11 +50,14 @@ def create_session(db: DBSession, user: models.User) -> str:
     return token
 
 
+SESSION_COOKIE_SECURE = os.getenv("SESSION_COOKIE_SECURE", "false").lower() == "true"
+
+
 def set_session_cookie(response: Response, token: str):
     response.set_cookie(
         key=SESSION_COOKIE_NAME, value=token,
         httponly=True, samesite="lax",
-        secure=True,  # never send over plain HTTP
+        secure=SESSION_COOKIE_SECURE,
         max_age=SESSION_MAX_AGE_SECONDS,  # 30 days
     )
 
